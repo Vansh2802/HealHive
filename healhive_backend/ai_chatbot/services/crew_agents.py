@@ -7,7 +7,6 @@ except Exception:
     Task = None
     Crew = None
 
-
 class CrewAIAssessmentAgents:
     def __init__(self):
         self.enabled = all([Agent, Task, Crew])
