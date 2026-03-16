@@ -12,7 +12,9 @@ class TherapySessionSerializer(serializers.ModelSerializer):
         model = TherapySession
         fields = [
             'id', 'therapist', 'therapist_name', 'patient', 'patient_name', 'session_time',
-            'session_status', 'room_id', 'meeting_link', 'session_start_time', 'session_end_time', 'created_at'
+            'session_status', 'room_id', 'meeting_link', 'session_start_time', 'session_end_time',
+            'feedback_rating', 'feedback_text', 'feedback_submitted_at',
+            'followup_email_sent', 'created_at'
         ]
 
 

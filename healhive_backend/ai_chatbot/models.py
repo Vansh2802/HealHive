@@ -103,3 +103,28 @@ class MentalHealthReport(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class ScreeningSession(models.Model):
+    session_id = models.CharField(max_length=128, unique=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='screening_sessions',
+    )
+    current_question_index = models.PositiveIntegerField(default=0)
+    screening_started = models.BooleanField(default=False)
+    chat_turns = models.PositiveIntegerField(default=0)
+    chat_history = models.JSONField(default=list, blank=True)
+    responses = models.JSONField(default=list, blank=True)
+    completed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return self.session_id

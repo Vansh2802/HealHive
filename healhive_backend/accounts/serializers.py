@@ -13,10 +13,11 @@ class AuthUserSerializer(serializers.ModelSerializer):
     bio = serializers.SerializerMethodField()
     licenseNumber = serializers.SerializerMethodField()
     universityName = serializers.SerializerMethodField()
+    assignedTherapist = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'name', 'email', 'age', 'mental_health_history', 'role', 'therapistVerified', 'therapistProfileId', 'specialization', 'bio', 'licenseNumber', 'universityName']
+        fields = ['id', 'name', 'email', 'age', 'mental_health_history', 'role', 'therapistVerified', 'therapistProfileId', 'specialization', 'bio', 'licenseNumber', 'universityName', 'assignedTherapist']
 
     def get_therapistVerified(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
@@ -41,6 +42,12 @@ class AuthUserSerializer(serializers.ModelSerializer):
     def get_universityName(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
         return profile.university_name if profile else ''
+
+    def get_assignedTherapist(self, obj):
+        patient_profile = getattr(obj, 'patient_profile', None)
+        if not patient_profile or not patient_profile.assigned_therapist:
+            return None
+        return patient_profile.assigned_therapist.id
 
 
 class RegisterSerializer(serializers.Serializer):

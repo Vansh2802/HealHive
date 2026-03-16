@@ -44,8 +44,14 @@ class MeView(APIView):
 class TherapistsListView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, _request):
+    def get(self, request):
         therapists = TherapistProfile.objects.select_related('user').filter(is_verified=True)
+
+        if request.user.role == User.ROLE_USER and hasattr(request.user, 'patient_profile'):
+            assigned = request.user.patient_profile.assigned_therapist
+            if assigned:
+                therapists = therapists.filter(id=assigned.id)
+
         data = [
             {
                 'id': t.id,
@@ -104,7 +110,7 @@ class AdminDashboardView(APIView):
             'activeTherapists': TherapistProfile.objects.filter(is_verified=True, user__is_active=True).count(),
             'totalSessions': TherapySession.objects.count(),
             'pendingVerifications': TherapistProfile.objects.filter(is_verified=False, user__is_active=True).count(),
-            'highRiskFlags': AssessmentReport.objects.filter(severity__in=['high', 'high-risk']).count(),
+            'highRiskFlags': AssessmentReport.objects.filter(severity__iregex=r'^(high|high-risk)$').count(),
             'avgSessionRating': 4.8,
         }
 

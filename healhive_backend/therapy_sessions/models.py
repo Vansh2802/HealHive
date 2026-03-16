@@ -22,6 +22,10 @@ class TherapySession(models.Model):
     meeting_link = models.URLField(blank=True)
     session_start_time = models.DateTimeField(null=True, blank=True)
     session_end_time = models.DateTimeField(null=True, blank=True)
+    feedback_rating = models.PositiveSmallIntegerField(null=True, blank=True)
+    feedback_text = models.TextField(blank=True)
+    feedback_submitted_at = models.DateTimeField(null=True, blank=True)
+    followup_email_sent = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
