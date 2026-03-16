@@ -246,17 +246,6 @@ def public_chat_message_api(request):
             "success": True,
             "reply": result.get("reply"),
             "flagged": flagged,
-            "therapistReport": screening_service._format_therapist_report(
-                {
-                    "severity": report_data.get("severity"),
-                    "indicators": report_data.get("indicators", []),
-                    "summary": report_data.get("summary", ""),
-                    "recommendation": report_data.get("recommendation", ""),
-                },
-                report_data.get("answers", []),
-            )
-            if result.get("completed") and report_data
-            else None,
             "toolUsed": "claude-screening",
             "severity": severity,
             "score": None,

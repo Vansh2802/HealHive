@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import requests
 
 from ai_chatbot.models import ScreeningSession
 from reports.models import AssessmentReport, TherapyRequest
@@ -30,32 +31,77 @@ SELF_HELP_RESOURCES = [
 class ClaudeScreeningService:
     def __init__(self):
         self.model = None
-        anthropic_key = os.getenv('ANTHROPIC_API_KEY')
+        self.api_key = os.getenv('ANTHROPIC_API_KEY')
+        self.model_name = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+        anthropic_key = self.api_key
         if anthropic_key and ChatAnthropic:
             self.model = ChatAnthropic(
-                model='claude-3-5-sonnet-20241022',
+                model=self.model_name,
                 anthropic_api_key=anthropic_key,
                 temperature=0.1,
             )
 
+    def _direct_anthropic_reply(self, system: str, messages: list[dict], max_tokens: int = 350) -> str | None:
+        if not self.api_key:
+            return None
+        try:
+            response = requests.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={
+                    'x-api-key': self.api_key,
+                    'anthropic-version': '2023-06-01',
+                    'content-type': 'application/json',
+                },
+                json={
+                    'model': self.model_name,
+                    'system': system,
+                    'messages': messages,
+                    'max_tokens': max_tokens,
+                    'temperature': 0.1,
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            parts = payload.get('content', []) or []
+            texts = [part.get('text', '') for part in parts if isinstance(part, dict) and part.get('type') == 'text']
+            combined = '\n'.join(texts).strip()
+            return combined or None
+        except Exception:
+            return None
+
     def get_conversational_reply(self, user_message: str, chat_history: list) -> str:
-        """Send the user message to Claude for a warm, natural empathetic reply."""
+        system = (
+            'You are a warm, empathetic mental wellness companion for HealHive. '
+            'Have a brief, genuine conversation: validate feelings and ask one simple follow-up question. '
+            'Keep replies to 2-3 sentences. Never diagnose. Do not mention screening questionnaires yet.'
+        )
+        messages = []
+        for turn in (chat_history or []):
+            role = turn.get('role')
+            content = str(turn.get('content') or '').strip()
+            if role in {'user', 'assistant'} and content:
+                messages.append({'role': role, 'content': content})
+        messages.append({'role': 'user', 'content': user_message})
+
+        raw_reply = self._direct_anthropic_reply(system=system, messages=messages, max_tokens=220)
+        if raw_reply:
+            return raw_reply
+
         if self.model:
             try:
-                system = (
-                    'You are a warm, empathetic mental wellness companion for HealHive. '
-                    'Your role right now is to have a brief, genuine conversation with the user — '
-                    'listen actively, acknowledge their feelings, and ask one simple follow-up question. '
-                    'Keep replies to 2-3 sentences. Never diagnose. Never mention questionnaires or screening yet.'
+                langchain_prompt = (
+                    f"System: {system}\n\n"
+                    f"History: {json.dumps(chat_history or [])}\n\n"
+                    f"User: {user_message}\nAssistant:"
                 )
-                messages = [{'role': 'system', 'content': system}]
-                for turn in (chat_history or []):
-                    messages.append({'role': turn['role'], 'content': turn['content']})
-                messages.append({'role': 'user', 'content': user_message})
-                raw = self.model.invoke(messages)
-                return raw.content.strip() if hasattr(raw, 'content') else str(raw).strip()
+                raw = self.model.invoke(langchain_prompt)
+                content = raw.content if hasattr(raw, 'content') else str(raw)
+                if content:
+                    return str(content).strip()
             except Exception:
                 pass
+
         # Fallback when no API key
         return "Thanks for reaching out — I'm here to listen. How are you feeling right now?"
 
@@ -132,6 +178,34 @@ class ClaudeScreeningService:
         }
 
     def _analyze_responses(self, responses: list[dict]):
+        raw_system = (
+            'You are a mental health screening classifier. '\
+            'Return ONLY strict JSON with schema '\
+            '{"severity":"LOW|MEDIUM|HIGH","indicators":["..."],"summary":"...","recommendation":"..."}. '\
+            'If there is any affirmative self-harm/unsafe signal, severity must be HIGH.'
+        )
+        raw_prompt = f"Responses:\n{json.dumps(responses)}"
+        raw_model_response = self._direct_anthropic_reply(
+            system=raw_system,
+            messages=[{'role': 'user', 'content': raw_prompt}],
+            max_tokens=350,
+        )
+
+        if raw_model_response:
+            try:
+                parsed = json.loads(self._extract_json(raw_model_response))
+                severity = str(parsed.get('severity', 'MEDIUM')).upper()
+                if severity not in {'LOW', 'MEDIUM', 'HIGH'}:
+                    severity = 'MEDIUM'
+                return {
+                    'severity': severity,
+                    'indicators': parsed.get('indicators', [])[:6],
+                    'summary': parsed.get('summary', 'User shows emotional distress requiring support.'),
+                    'recommendation': parsed.get('recommendation', 'Therapist consultation recommended.'),
+                }
+            except Exception:
+                pass
+
         if self.model:
             try:
                 prompt = (
@@ -167,6 +241,14 @@ class ClaudeScreeningService:
 
         danger_terms = ['self-harm', 'harm myself', 'suicide', 'end my life', 'unsafe']
         high_risk = any(term in text for term in danger_terms)
+
+        q5_answer = ''
+        if len(responses) >= len(SCREENING_QUESTIONS):
+            q5_answer = str(responses[-1].get('answer') or '').strip().lower()
+            negation_terms = ['no', 'not', 'never', 'none', "don't", 'dont']
+            affirmative_terms = ['yes', 'y', 'yeah', 'yep', 'yess', 'often', 'always', 'daily', 'true', 'i do', 'i have']
+            if not any(term in q5_answer for term in negation_terms) and any(term in q5_answer for term in affirmative_terms):
+                high_risk = True
 
         intensity_hits = len(re.findall(r'\b(always|daily|severe|extreme|cannot|can\'t)\b', text))
         if high_risk:
