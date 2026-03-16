@@ -41,3 +41,17 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+
+# Local databases
+*.sqlite3
