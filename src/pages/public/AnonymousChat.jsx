@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, RefreshCw } from 'lucide-react'
 import ChatBubble from '../../components/ChatBubble'
 import DisclaimerBanner from '../../components/DisclaimerBanner'
-import { sendMessage } from '../../api/chatbot'
+import { sendMessage } from '../../services/api/chatbot'
 
 const WELCOME_MSG = {
     id: 'welcome',

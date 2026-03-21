@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AlertCircle, Loader2, CheckCircle, ArrowRight } from 'lucide-react'
-import { register } from '../../api/auth'
+import { register } from '../../services/api/auth'
 
 export default function TherapistSignup() {
     const navigate = useNavigate()

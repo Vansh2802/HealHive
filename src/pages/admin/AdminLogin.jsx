@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { login as apiLogin } from '../../api/auth'
+import { login as apiLogin } from '../../services/api/auth'
 import { ShieldCheck, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react'
 
 export default function AdminLogin() {

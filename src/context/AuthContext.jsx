@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { fetchMe, clearToken } from '../api/auth'
+import { fetchMe, clearToken } from '../services/api/auth'
 
 const AuthContext = createContext(null)
 

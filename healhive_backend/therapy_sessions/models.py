@@ -1,6 +1,20 @@
 import uuid
 from django.db import models
+
 from accounts.models import TherapistProfile, PatientProfile
+class Availability(models.Model):
+    therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='availabilities')
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    is_booked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['start_time']
+        unique_together = ('therapist', 'start_time', 'end_time')
+
+    def __str__(self):
+        return f"{self.therapist.user.full_name}: {self.start_time} - {self.end_time}"
 
 
 class TherapySession(models.Model):

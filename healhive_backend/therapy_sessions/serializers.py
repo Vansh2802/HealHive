@@ -1,7 +1,18 @@
+
 from django.utils import timezone
 from rest_framework import serializers
 from accounts.models import TherapistProfile, PatientProfile
-from .models import TherapySession
+from .models import TherapySession, Availability
+
+
+class AvailabilitySerializer(serializers.ModelSerializer):
+    therapist_name = serializers.CharField(source='therapist.user.full_name', read_only=True)
+
+    class Meta:
+        model = Availability
+        fields = [
+            'id', 'therapist', 'therapist_name', 'start_time', 'end_time', 'is_booked', 'created_at'
+        ]
 
 
 class TherapySessionSerializer(serializers.ModelSerializer):

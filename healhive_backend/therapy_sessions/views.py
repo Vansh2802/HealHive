@@ -1,3 +1,53 @@
+from .models import TherapySession, Availability
+from .serializers import BookSessionSerializer, TherapySessionSerializer, AvailabilitySerializer
+
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+
+class AvailabilityListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.role == User.ROLE_THERAPIST and hasattr(user, 'therapist_profile'):
+            availabilities = Availability.objects.filter(therapist=user.therapist_profile)
+        elif user.role == User.ROLE_ADMIN:
+            availabilities = Availability.objects.all()
+        else:
+            return Response({'success': False, 'error': 'Unauthorized.'}, status=403)
+        return Response({'success': True, 'availabilities': AvailabilitySerializer(availabilities, many=True).data})
+
+    def post(self, request):
+        user = request.user
+        if user.role != User.ROLE_THERAPIST or not hasattr(user, 'therapist_profile'):
+            return Response({'success': False, 'error': 'Only therapists can create availability.'}, status=403)
+        data = request.data.copy()
+        data['therapist'] = user.therapist_profile.id
+        serializer = AvailabilitySerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'success': True, 'availability': serializer.data}, status=201)
+        return Response({'success': False, 'error': serializer.errors}, status=400)
+
+
+class AvailabilityDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, availability_id):
+        user = request.user
+        try:
+            availability = Availability.objects.get(id=availability_id)
+        except Availability.DoesNotExist:
+            return Response({'success': False, 'error': 'Availability not found.'}, status=404)
+        if user.role != User.ROLE_THERAPIST or not hasattr(user, 'therapist_profile') or availability.therapist != user.therapist_profile:
+            return Response({'success': False, 'error': 'Unauthorized.'}, status=403)
+        if availability.is_booked:
+            return Response({'success': False, 'error': 'Cannot delete a booked slot.'}, status=400)
+        availability.delete()
+        return Response({'success': True, 'message': 'Availability deleted.'})
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
