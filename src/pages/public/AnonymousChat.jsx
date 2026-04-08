@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, RefreshCw } from 'lucide-react'
 import ChatBubble from '../../components/ChatBubble'
 import DisclaimerBanner from '../../components/DisclaimerBanner'
-import { sendMessage } from '../../services/api/chatbot'
+import { createChatSocketAdapter } from '../../services/chat/websocketAdapter'
 
 const WELCOME_MSG = {
     id: 'welcome',
@@ -19,6 +19,51 @@ export default function AnonymousChat() {
     const messagesEndRef = useRef(null)
     const inputRef = useRef(null)
     const sessionId = useRef(`session-${Date.now()}`)
+    const socketRef = useRef(null)
+
+    useEffect(() => {
+        const adapter = createChatSocketAdapter()
+        socketRef.current = adapter.connect(sessionId.current)
+
+        const unsubReceive = adapter.on('receive_message', (payload) => {
+            const incoming = {
+                id: payload.id || `${payload.sender_type}-${Date.now()}`,
+                text: payload.content || '',
+                isBot: payload.sender_type !== 'user',
+                timestamp: new Date(payload.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            }
+
+            setMessages((prev) => [...prev, incoming])
+            if (payload.sender_type !== 'user') {
+                setLoading(false)
+            }
+        })
+
+        const unsubError = adapter.on('error', (payload) => {
+            setLoading(false)
+            setError(payload?.message || 'Unable to connect to chatbot service.')
+        })
+
+        const unsubEscalation = adapter.on('escalate_to_therapist', (payload) => {
+            setMessages((prev) => [
+                ...prev,
+                {
+                    id: `escalation-${Date.now()}`,
+                    text: payload.reason || 'A therapist has been requested to join this session.',
+                    isBot: true,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+            ])
+        })
+
+        return () => {
+            unsubReceive()
+            unsubError()
+            unsubEscalation()
+            adapter.disconnect()
+            socketRef.current = null
+        }
+    }, [])
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -39,20 +84,13 @@ export default function AnonymousChat() {
         setInput('')
         setLoading(true)
 
-        const result = await sendMessage(text, sessionId.current, [...messages, userMsg])
+        socketRef.current?.emit('send_message', {
+            session_id: sessionId.current,
+            sender_type: 'user',
+            content: text,
+            mode: 'ai',
+        })
 
-        if (result.success) {
-            setMessages(prev => [...prev, {
-                id: `b-${Date.now()}`,
-                text: result.reply,
-                isBot: true,
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            }])
-        } else {
-            setError(result.error)
-        }
-
-        setLoading(false)
         inputRef.current?.focus()
     }
 

@@ -55,7 +55,7 @@ export default function TherapistDashboard() {
     useEffect(() => {
         const token = getToken()
         if (!token) return
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/reports`, {
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/reports`, {
             headers: { Authorization: `Bearer ${token}` },
         })
             .then(r => r.json())
