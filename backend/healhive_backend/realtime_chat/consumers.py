@@ -286,14 +286,44 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _ensure_chat_session_metadata(self, session_id):
-        chat_session, _ = ChatSession.objects.get_or_create(
-            session_id=session_id,
-            defaults={
-                'current_mode': ChatSession.MODE_AI,
-                'severity': ChatSession.SEVERITY_LOW,
-            },
-        )
-        return chat_session
+        from therapy_sessions.models import TherapySession
+        
+        try:
+            # We assume session_id is either a UUID room_id or an integer PK
+            # We will try looking up by id first, then room_id.
+            if session_id.isdigit():
+                therapy_session = TherapySession.objects.select_related(
+                    'patient__user',
+                    'therapist',
+                ).get(id=int(session_id))
+            else:
+                therapy_session = TherapySession.objects.select_related(
+                    'patient__user',
+                    'therapist',
+                ).get(room_id=session_id)
+
+            if therapy_session.current_status != 'ongoing':
+                logger.warning(
+                    'WebSocket rejected: session_id=%s is not ongoing (status=%s)',
+                    session_id,
+                    therapy_session.current_status,
+                )
+                return None
+
+            chat_session, _ = ChatSession.objects.get_or_create(
+                session_id=session_id,
+                defaults={
+                    'current_mode': ChatSession.MODE_AI,
+                    'severity': ChatSession.SEVERITY_LOW,
+                    'user': getattr(therapy_session.patient, 'user', None),
+                    'therapist': therapy_session.therapist,
+                },
+            )
+            return chat_session
+
+        except TherapySession.DoesNotExist:
+            logger.warning('WebSocket rejected: no TherapySession for session_id=%s', session_id)
+            return None
 
     @database_sync_to_async
     def _touch_session_timestamp(self, session_id, timestamp):

@@ -69,7 +69,8 @@ def main() -> None:
             flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
     credentials = flow.run_local_server(port=0)
     TOKEN_FILE.write_text(credentials.to_json(), encoding='utf-8')
-    print('Token generated successfully')
+    print(f'✅ Token generated successfully at: {TOKEN_FILE}')
+    print('📝 Backend will automatically use this token for Google Calendar API calls')
 
 
 if __name__ == '__main__':

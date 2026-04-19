@@ -20,7 +20,8 @@ export async function fetchAdminStats() {
                 totalSessions: data.metrics?.totalSessions || 0,
             },
         }
-    } catch {
+    } catch (error) {
+        console.error('[Admin API] fetchAdminStats error:', error)
         return { success: false, stats: {} }
     }
 }
@@ -33,8 +34,10 @@ export async function fetchAdminTherapists() {
             headers: { Authorization: `Bearer ${token}` },
         })
         const data = await res.json()
+        console.log('[Admin API] fetchAdminTherapists response:', data)
         return { success: true, therapists: data.success ? data.therapists : [] }
-    } catch {
+    } catch (error) {
+        console.error('[Admin API] fetchAdminTherapists error:', error)
         return { success: false, therapists: [] }
     }
 }
@@ -48,7 +51,8 @@ export async function fetchAdminSessions() {
         })
         const data = await res.json()
         return { success: true, sessions: data.success ? data.sessions : [] }
-    } catch {
+    } catch (error) {
+        console.error('[Admin API] fetchAdminSessions error:', error)
         return { success: false, sessions: [] }
     }
 }
@@ -65,8 +69,11 @@ export async function reviewTherapist(therapistId, action) {
             },
             body: JSON.stringify({ action }),
         })
-        return await res.json()
-    } catch {
+        const data = await res.json()
+        console.log('[Admin API] reviewTherapist response:', data)
+        return data
+    } catch (error) {
+        console.error('[Admin API] reviewTherapist error:', error)
         return { success: false, error: 'Failed to update therapist.' }
     }
 }

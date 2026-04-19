@@ -9,6 +9,7 @@ class AuthUserSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='full_name', read_only=True)
     therapistVerified = serializers.SerializerMethodField()
     therapistProfileId = serializers.SerializerMethodField()
+    therapistStatus = serializers.SerializerMethodField()
     specialization = serializers.SerializerMethodField()
     bio = serializers.SerializerMethodField()
     licenseNumber = serializers.SerializerMethodField()
@@ -17,7 +18,7 @@ class AuthUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'name', 'email', 'age', 'mental_health_history', 'role', 'therapistVerified', 'therapistProfileId', 'specialization', 'bio', 'licenseNumber', 'universityName', 'assignedTherapist']
+        fields = ['id', 'name', 'email', 'age', 'mental_health_history', 'role', 'therapistVerified', 'therapistProfileId', 'therapistStatus', 'specialization', 'bio', 'licenseNumber', 'universityName', 'assignedTherapist']
 
     def get_therapistVerified(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
@@ -26,6 +27,18 @@ class AuthUserSerializer(serializers.ModelSerializer):
     def get_therapistProfileId(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
         return profile.id if profile else None
+
+    def get_therapistStatus(self, obj):
+        """Return therapist approval status: 'pending', 'approved', or 'rejected'"""
+        profile = getattr(obj, 'therapist_profile', None)
+        if not profile:
+            return None
+        if profile.is_approved or profile.is_verified:
+            return 'approved'
+        elif profile.is_rejected:
+            return 'rejected'
+        else:
+            return 'pending'
 
     def get_specialization(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
@@ -106,20 +119,29 @@ class LoginSerializer(serializers.Serializer):
         password = attrs.get('password')
         role = attrs.get('role')
 
-        user = authenticate(username=email, password=password)
+        user = User.objects.filter(email__iexact=email).first()
         if user is None:
-            raise serializers.ValidationError('Invalid credentials or wrong role selected.')
-        if user.role != role:
-            raise serializers.ValidationError('Invalid credentials or wrong role selected.')
+            raise serializers.ValidationError('User not found')
 
+        if not user.check_password(password):
+            raise serializers.ValidationError('Incorrect password')
+
+        if user.role != role:
+            raise serializers.ValidationError('Wrong role selected')
+
+        # Ensure authentication backend agrees (also checks is_active)
+        authenticated = authenticate(username=user.email, password=password)
+        if authenticated is None:
+            raise serializers.ValidationError('Unable to authenticate user')
+
+        # Allow therapist login even if pending approval
+        # Frontend will check therapistStatus and show appropriate message
         if role == User.ROLE_THERAPIST:
             profile = getattr(user, 'therapist_profile', None)
-            if not profile or not (profile.is_approved or profile.is_verified):
-                raise serializers.ValidationError('Awaiting admin approval')
-            if profile.is_rejected:
-                raise serializers.ValidationError('Therapist application has been rejected.')
+            if profile and profile.is_rejected:
+                raise serializers.ValidationError('Your application has been rejected. Please contact support.')
 
-        attrs['user'] = user
+        attrs['user'] = authenticated
         return attrs
 
 

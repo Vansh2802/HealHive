@@ -11,6 +11,7 @@ import {
     LayoutDashboard, Calendar, Clock, CheckCircle, Plus, X, Loader2,
     FileText, ChevronDown, ChevronUp, AlertTriangle, Video, Sparkles, Trash2
 } from 'lucide-react'
+import { fetchTherapistUpcomingSessions } from '../../services/api/sessions'
 
 const navItems = [
     { path: '/therapist/dashboard', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -18,6 +19,7 @@ const navItems = [
 
 const fadeUp = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 } }
 const stagger = { animate: { transition: { staggerChildren: 0.05 } } }
+const IST_TIMEZONE = 'Asia/Kolkata'
 
 export default function TherapistDashboard() {
     const { user } = useAuth()
@@ -34,6 +36,8 @@ export default function TherapistDashboard() {
     const [slotStart, setSlotStart] = useState('')
     const [slotEnd, setSlotEnd] = useState('')
     const [slotError, setSlotError] = useState('')
+    const [upcomingSessions, setUpcomingSessions] = useState([])
+    const [upcomingSessionsLoading, setUpcomingSessionsLoading] = useState(true)
 
     useEffect(() => {
         if (!user?.id) return
@@ -50,6 +54,15 @@ export default function TherapistDashboard() {
             .then(data => setSessions(data))
             .catch(() => setSessions([]))
             .finally(() => setLoading(false))
+    }, [user?.id])
+
+    useEffect(() => {
+        if (!user?.id) return
+        setUpcomingSessionsLoading(true)
+        fetchTherapistUpcomingSessions()
+            .then(data => setUpcomingSessions(data))
+            .catch(() => setUpcomingSessions([]))
+            .finally(() => setUpcomingSessionsLoading(false))
     }, [user?.id])
 
     useEffect(() => {
@@ -93,8 +106,8 @@ export default function TherapistDashboard() {
         window.open(session.meeting_link, '_blank', 'noopener,noreferrer')
     }
 
-    const upcoming = sessions.filter(s => s.status === 'upcoming')
-    const completed = sessions.filter(s => s.status === 'completed')
+    const upcoming = sessions.filter(s => s.status === 'upcoming' || s.status === 'ongoing')
+    const completed = sessions.filter(s => s.status === 'completed' || s.status === 'cancelled')
 
     const tabs = [
         { key: 'sessions', label: 'Sessions', icon: Calendar },
@@ -151,8 +164,9 @@ export default function TherapistDashboard() {
 
             {/* Sessions Tab */}
             {tab === 'sessions' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <motion.div variants={stagger} initial="initial" animate="animate">
+                <>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <motion.div variants={stagger} initial="initial" animate="animate">
                         <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-sage-500" /> Upcoming ({upcoming.length})
                         </h3>
@@ -163,17 +177,29 @@ export default function TherapistDashboard() {
                                         className="bg-white rounded-2xl border border-slate-100 p-5 hover:shadow-md transition-all">
                                         <div className="flex items-start justify-between mb-2">
                                             <h4 className="text-sm font-semibold text-slate-800">Patient Session</h4>
-                                            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-sage-50 text-sage-700">Upcoming</span>
+                                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
+                                                s.status === 'ongoing' ? 'bg-amber-50 text-amber-700' : 'bg-sage-50 text-sage-700'
+                                            }`}>{s.status}</span>
                                         </div>
                                         <div className="flex gap-3 text-xs text-slate-500 mb-3">
                                             <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{s.date}</span>
                                             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{s.time}</span>
                                         </div>
-                                        {s.meeting_link && (
+                                        {(s.meeting_link && s.status === 'ongoing') && (
                                             <button onClick={() => handleJoinSession(s)}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-sage-600 to-sage-500 hover:shadow-lg transition-all">
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-amber-600 to-amber-500 hover:shadow-lg transition-all">
                                                 <Video className="w-4 h-4" /> Join Session
                                             </button>
+                                        )}
+                                        {(s.meeting_link && s.status === 'upcoming') && (
+                                            <div className="w-full py-2.5 rounded-xl text-center text-xs font-medium text-slate-500 bg-slate-100 flex items-center justify-center gap-2">
+                                                <Clock className="w-4 h-4" /> Session starts at {s.time}
+                                            </div>
+                                        )}
+                                        {!s.meeting_link && (
+                                            <div className="w-full py-2.5 rounded-xl text-center text-xs font-medium text-slate-400 bg-slate-50">
+                                                Link unavailable
+                                            </div>
                                         )}
                                     </motion.div>
                                 ))}
@@ -185,9 +211,9 @@ export default function TherapistDashboard() {
                                 <p className="text-xs text-slate-400">Take a moment to relax.</p>
                             </div>
                         )}
-                    </motion.div>
+                        </motion.div>
 
-                    <motion.div variants={stagger} initial="initial" animate="animate">
+                        <motion.div variants={stagger} initial="initial" animate="animate">
                         <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
                             <CheckCircle className="w-4 h-4 text-emerald-500" /> History ({completed.length})
                         </h3>
@@ -203,7 +229,9 @@ export default function TherapistDashboard() {
                                                     <span>{s.date}</span><span>{s.time}</span>
                                                 </div>
                                             </div>
-                                            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">Done</span>
+                                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
+                                                s.status === 'cancelled' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
+                                            }`}>{s.status}</span>
                                         </div>
                                     </motion.div>
                                 ))}
@@ -214,8 +242,77 @@ export default function TherapistDashboard() {
                                 <p className="text-sm text-slate-600">No completed sessions yet.</p>
                             </div>
                         )}
+                        </motion.div>
+                    </div>
+
+                    <motion.div variants={stagger} initial="initial" animate="animate" className="mt-8">
+                        <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <Video className="w-4 h-4 text-blue-500" /> Booked Sessions ({upcomingSessions.length})
+                        </h3>
+                        {upcomingSessions.length > 0 ? (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                {upcomingSessions.map(s => {
+                                    const sessionTime = new Date(s.session_time)
+                                    const sessionDate = sessionTime.toLocaleDateString('en-IN', {
+                                        weekday: 'short',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        timeZone: IST_TIMEZONE,
+                                    })
+                                    const sessionTimeStr = sessionTime.toLocaleTimeString('en-IN', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        timeZone: IST_TIMEZONE,
+                                    })
+                                    const isOngoing = s.status === 'ongoing'
+                                    return (
+                                        <motion.div key={s.id} variants={fadeUp}
+                                            className="bg-gradient-to-br from-blue-50 to-blue-0 rounded-2xl border border-blue-200 p-5 hover:shadow-md transition-all">
+                                            <div className="flex items-start justify-between mb-2">
+                                                <h4 className="text-sm font-semibold text-slate-800">{s.patient_name}</h4>
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
+                                                    s.status === 'upcoming' ? 'bg-blue-100 text-blue-700' :
+                                                    s.status === 'ongoing' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-emerald-100 text-emerald-700'
+                                                }`}>
+                                                    {s.status}
+                                                </span>
+                                            </div>
+                                            <div className="flex gap-3 text-xs text-slate-500 mb-3">
+                                                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{sessionDate}</span>
+                                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{sessionTimeStr}</span>
+                                            </div>
+                                            {(s.meeting_link && s.status === 'ongoing') && (
+                                                <button onClick={() => window.open(s.meeting_link, '_blank', 'noopener,noreferrer')}
+                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-amber-600 to-amber-500 hover:shadow-lg transition-all active:scale-95">
+                                                    <Video className="w-4 h-4" /> Join Session
+                                                </button>
+                                            )}
+                                            {(s.meeting_link && s.status === 'upcoming') && (
+                                                <div className="w-full py-2.5 rounded-xl text-center text-xs font-medium text-blue-600 bg-blue-50/50 flex items-center justify-center gap-2 border border-blue-100">
+                                                    <Clock className="w-4 h-4" /> Session starts at {sessionTimeStr}
+                                                </div>
+                                            )}
+                                            {!s.meeting_link && (
+                                                <div className="w-full py-2.5 rounded-xl text-center text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200">
+                                                    Meet link unavailable
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    )
+                                })}
+                            </div>
+                        ) : upcomingSessionsLoading ? (
+                            <Skeleton height="h-24" count={2} />
+                        ) : (
+                            <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
+                                <Video className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                                <p className="text-sm text-slate-600">No booked sessions with Google Meet</p>
+                                <p className="text-xs text-slate-400">Bookings will appear here automatically</p>
+                            </div>
+                        )}
                     </motion.div>
-                </div>
+                </>
             )}
 
             {/* Availability Tab */}
@@ -264,10 +361,10 @@ export default function TherapistDashboard() {
                                         <Calendar className="w-4 h-4 text-sage-500" />
                                         <div>
                                             <p className="text-sm font-medium text-slate-700">
-                                                {new Date(slot.start_time).toLocaleDateString()}
+                                                {new Date(slot.start_time).toLocaleDateString('en-IN', { timeZone: IST_TIMEZONE })}
                                             </p>
                                             <p className="text-xs text-slate-500">
-                                                {new Date(slot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(slot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                {new Date(slot.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIMEZONE })} – {new Date(slot.end_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIMEZONE })}
                                             </p>
                                         </div>
                                     </div>

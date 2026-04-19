@@ -18,11 +18,13 @@ class Availability(models.Model):
 
 
 class TherapySession(models.Model):
+    STATUS_CONFIRMED = 'confirmed'
     STATUS_SCHEDULED = 'scheduled'
     STATUS_COMPLETED = 'completed'
     STATUS_CANCELLED = 'cancelled'
 
     SESSION_STATUS_CHOICES = [
+        (STATUS_CONFIRMED, 'Confirmed'),
         (STATUS_SCHEDULED, 'Scheduled'),
         (STATUS_COMPLETED, 'Completed'),
         (STATUS_CANCELLED, 'Cancelled'),
@@ -31,9 +33,10 @@ class TherapySession(models.Model):
     therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='sessions')
     patient = models.ForeignKey(PatientProfile, on_delete=models.CASCADE, related_name='sessions')
     session_time = models.DateTimeField()
-    session_status = models.CharField(max_length=20, choices=SESSION_STATUS_CHOICES, default=STATUS_SCHEDULED)
+    session_status = models.CharField(max_length=20, choices=SESSION_STATUS_CHOICES, default=STATUS_CONFIRMED)
     room_id = models.CharField(max_length=64, unique=True, blank=True)
-    meeting_link = models.URLField(blank=True)
+    meeting_link = models.URLField(blank=False, null=False)
+    google_event_id = models.CharField(max_length=255, blank=True, null=True)
     session_start_time = models.DateTimeField(null=True, blank=True)
     session_end_time = models.DateTimeField(null=True, blank=True)
     feedback_rating = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -45,14 +48,30 @@ class TherapySession(models.Model):
     class Meta:
         ordering = ['session_time']
 
+    @property
+    def current_status(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        if self.session_status == self.STATUS_CANCELLED:
+            return 'cancelled'
+            
+        now = timezone.now()
+        end_time = self.session_end_time or (self.session_time + timedelta(hours=1))
+        
+        if now > end_time:
+            return 'completed'
+        elif self.session_time <= now <= end_time:
+            return 'ongoing'
+        else:
+            return 'upcoming'
+
     def __str__(self):
         return f"{self.patient.user.full_name} with {self.therapist.user.full_name}"
 
     def save(self, *args, **kwargs):
         if not self.room_id:
             self.room_id = str(uuid.uuid4())
-        if not self.meeting_link:
-            self.meeting_link = f"/video-call/{self.room_id}/"
         super().save(*args, **kwargs)
 
 
@@ -60,6 +79,7 @@ class Session(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='google_calendar_sessions')
     therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='google_calendar_sessions')
     meeting_link = models.URLField()
+    google_event_id = models.CharField(max_length=255, blank=True, null=True)
     scheduled_time = models.DateTimeField()
 
     class Meta:

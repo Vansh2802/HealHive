@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { AuthProvider } from './context/AuthContext'
 import { ToastProvider } from './components/Toast'
+import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -117,7 +118,9 @@ export default function App() {
         <BrowserRouter>
             <AuthProvider>
                 <ToastProvider>
-                    <AppLayout />
+                    <ErrorBoundary>
+                        <AppLayout />
+                    </ErrorBoundary>
                 </ToastProvider>
             </AuthProvider>
         </BrowserRouter>
