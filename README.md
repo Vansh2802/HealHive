@@ -79,25 +79,21 @@ The frontend continues to call the existing Django endpoints without changing re
 
 ## Google Calendar OAuth Setup
 
-To enable Google Meet generation, create a manual `credentials.json` file in the backend root directory, the same folder as `manage.py`:
+For team-safe setup, keep Google OAuth credentials in environment variables instead of Python files.
 
-`backend/healhive_backend/credentials.json`
+1. Add values in your local `.env` (not committed):
 
-Do not paste `client_id` or `client_secret` into Python files. Download the OAuth client JSON from Google Cloud Console, then place it in that path. The file should never be committed to GitHub, and it is already ignored by `.gitignore`.
-
-Example structure:
-
-```json
-{
-	"installed": {
-		"client_id": "YOUR_CLIENT_ID_HERE",
-		"project_id": "your_project_name",
-		"auth_uri": "https://accounts.google.com/o/oauth2/auth",
-		"token_uri": "https://oauth2.googleapis.com/token",
-		"client_secret": "YOUR_CLIENT_SECRET_HERE",
-		"redirect_uris": ["http://localhost"]
-	}
-}
+```env
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_PROJECT_ID=healhive
 ```
 
-Run `python auth.py` once from `backend/healhive_backend/`. That script opens a browser, creates `token.json`, and the backend reuses it automatically for future Google Calendar API calls.
+2. Run `python auth.py` once from `backend/healhive_backend/`.
+
+This opens the browser OAuth flow and creates `token.json`. The backend then reuses `token.json` for Google Calendar API calls.
+
+Security notes:
+- Do not hardcode `client_id` or `client_secret` in code.
+- Do not commit `.env` or `token.json`.
+- For production, prefer a managed secret store (Azure Key Vault, GitHub Actions Secrets, etc.) instead of plain `.env` files.

@@ -1,15 +1,15 @@
 """Google Calendar integration for HealHive therapy sessions.
 
-Place credentials.json beside manage.py in backend/healhive_backend/ or set
-GOOGLE_CREDENTIALS_FILE to an alternate path. token.json is generated after the
-first OAuth run and reused automatically so users do not re-authenticate on
-every booking. Never commit either file to GitHub.
+Run backend/healhive_backend/auth.py once after setting GOOGLE_CLIENT_ID and
+GOOGLE_CLIENT_SECRET in .env. That generates token.json, which is reused
+automatically so users do not re-authenticate on every booking.
+
+Never commit token.json to GitHub.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -33,17 +33,7 @@ class GoogleCalendarError(RuntimeError):
     """Raised when the Google Calendar API cannot complete the request."""
 
 
-def _resolve_credentials_path() -> Path:
-    override_path = os.getenv('GOOGLE_CREDENTIALS_FILE', '').strip()
-    if override_path:
-        return Path(override_path)
-    return Path(settings.BASE_DIR) / 'credentials.json'
-
-
 def _resolve_token_path() -> Path:
-    override_path = os.getenv('GOOGLE_TOKEN_FILE', '').strip()
-    if override_path:
-        return Path(override_path)
     return Path(settings.BASE_DIR) / 'token.json'
 
 
@@ -51,17 +41,13 @@ def get_google_credentials() -> Credentials:
     """Load and refresh the stored token for Google Calendar access.
 
     token.json must already exist. Run backend/healhive_backend/auth.py once to
-    create it after adding credentials.json.
+    create it after setting GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.
     """
 
-    credentials_path = _resolve_credentials_path()
     token_path = _resolve_token_path()
 
-    if not credentials_path.exists():
-        raise FileNotFoundError('credentials.json not found. Please add your Google OAuth credentials.')
-
     if not token_path.exists():
-        raise FileNotFoundError('Run python auth.py once')
+        raise FileNotFoundError('token.json not found. Run python auth.py once after setting GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.')
 
     try:
         credentials = Credentials.from_authorized_user_file(str(token_path), SCOPES)
