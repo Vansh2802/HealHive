@@ -1,6 +1,9 @@
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils import timezone
+from django.db.models import Q
+
 from .models import User, TherapistProfile
 from .serializers import RegisterSerializer, LoginSerializer, AuthUserSerializer, generate_access_token
 from reports.models import AssessmentReport
@@ -13,9 +16,23 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({'success': False, 'error': serializer.errors}, status=400)
+            first_error_list = next(iter(serializer.errors.values()), ['Signup failed. Please try again.'])
+            first_error = first_error_list[0] if isinstance(first_error_list, list) and first_error_list else str(first_error_list)
+            return Response({'success': False, 'error': str(first_error)}, status=400)
 
         user = serializer.save()
+
+        if user.role == User.ROLE_THERAPIST:
+            return Response(
+                {
+                    'success': True,
+                    'token': None,
+                    'message': 'Application submitted. Awaiting admin approval.',
+                    'user': AuthUserSerializer(user).data,
+                },
+                status=201,
+            )
+
         token = generate_access_token(user)
         return Response({'success': True, 'token': token, 'user': AuthUserSerializer(user).data}, status=201)
 
@@ -45,7 +62,9 @@ class TherapistsListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        therapists = TherapistProfile.objects.select_related('user').filter(is_verified=True)
+        therapists = TherapistProfile.objects.select_related('user').filter(
+            Q(is_approved=True) | Q(is_verified=True)
+        )
 
         if request.user.role == User.ROLE_USER and hasattr(request.user, 'patient_profile'):
             assigned = request.user.patient_profile.assigned_therapist
@@ -60,6 +79,10 @@ class TherapistsListView(APIView):
                 'specialization': t.specialization,
                 'bio': t.bio,
                 'universityName': t.university_name,
+                'isApproved': t.is_approved,
+                'isRejected': t.is_rejected,
+                'applicationDate': t.application_date,
+                'approvalDate': t.approval_date,
             }
             for t in therapists
         ]
@@ -85,8 +108,12 @@ class AdminDashboardView(APIView):
                 'licenseNumber': t.license_number,
                 'universityName': t.university_name,
                 'verified': t.is_verified,
+                'isApproved': t.is_approved,
+                'isRejected': t.is_rejected,
                 'isActive': t.user.is_active,
                 'createdAt': t.user.created_at,
+                'applicationDate': t.application_date,
+                'approvalDate': t.approval_date,
             }
             for t in therapists
         ]
@@ -107,9 +134,23 @@ class AdminDashboardView(APIView):
 
         metrics = {
             'totalUsers': User.objects.filter(role=User.ROLE_USER).count(),
-            'activeTherapists': TherapistProfile.objects.filter(is_verified=True, user__is_active=True).count(),
+            'totalTherapists': TherapistProfile.objects.count(),
+            'activeTherapists': TherapistProfile.objects.filter(
+                Q(is_approved=True) | Q(is_verified=True),
+                user__is_active=True,
+            ).count(),
+            'approvedTherapists': TherapistProfile.objects.filter(Q(is_approved=True) | Q(is_verified=True)).count(),
+            'pendingTherapists': TherapistProfile.objects.filter(
+                is_approved=False,
+                is_rejected=False,
+                is_verified=False,
+            ).count(),
             'totalSessions': TherapySession.objects.count(),
-            'pendingVerifications': TherapistProfile.objects.filter(is_verified=False, user__is_active=True).count(),
+            'pendingVerifications': TherapistProfile.objects.filter(
+                is_approved=False,
+                is_rejected=False,
+                is_verified=False,
+            ).count(),
             'highRiskFlags': AssessmentReport.objects.filter(severity__iregex=r'^(high|high-risk)$').count(),
             'avgSessionRating': 4.8,
         }
@@ -136,13 +177,19 @@ class AdminTherapistReviewView(APIView):
 
         action = request.data.get('action')
         if action == 'approve':
+            profile.is_approved = True
+            profile.is_rejected = False
             profile.is_verified = True
-            profile.save(update_fields=['is_verified'])
+            profile.approval_date = timezone.now()
+            profile.save(update_fields=['is_approved', 'is_rejected', 'is_verified', 'approval_date'])
             profile.user.is_active = True
             profile.user.save(update_fields=['is_active'])
         elif action == 'reject':
+            profile.is_approved = False
+            profile.is_rejected = True
             profile.is_verified = False
-            profile.save(update_fields=['is_verified'])
+            profile.approval_date = None
+            profile.save(update_fields=['is_approved', 'is_rejected', 'is_verified', 'approval_date'])
             profile.user.is_active = False
             profile.user.save(update_fields=['is_active'])
         else:

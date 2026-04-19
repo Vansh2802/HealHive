@@ -1,6 +1,23 @@
 // ─── Auth API Service ───
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
+function extractErrorMessage(errorValue, fallback = 'Request failed. Please try again.') {
+    if (typeof errorValue === 'string' && errorValue.trim()) {
+        return errorValue
+    }
+    if (errorValue && typeof errorValue === 'object') {
+        const firstKey = Object.keys(errorValue)[0]
+        const firstValue = firstKey ? errorValue[firstKey] : null
+        if (Array.isArray(firstValue) && firstValue.length > 0) {
+            return String(firstValue[0])
+        }
+        if (typeof firstValue === 'string' && firstValue.trim()) {
+            return firstValue
+        }
+    }
+    return fallback
+}
+
 function setToken(token) {
     localStorage.setItem('healhive_token', token)
 }
@@ -21,6 +38,9 @@ export async function login(email, password, role) {
             body: JSON.stringify({ email, password, role }),
         })
         const data = await res.json()
+        if (!res.ok) {
+            return { success: false, error: extractErrorMessage(data.error, 'Login failed. Please try again.') }
+        }
         if (data.success && data.token) {
             setToken(data.token)
         }
@@ -38,6 +58,9 @@ export async function register(name, email, password, role, extras = {}) {
             body: JSON.stringify({ name, email, password, role, ...extras }),
         })
         const data = await res.json()
+        if (!res.ok) {
+            return { success: false, error: extractErrorMessage(data.error, 'Signup failed. Please try again.') }
+        }
         // Don't set token for therapist registration — they need admin approval first
         if (data.success && data.token && role !== 'therapist') {
             setToken(data.token)

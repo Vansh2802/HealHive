@@ -55,3 +55,7 @@ venv/
 
 # Local databases
 *.sqlite3
+
+# Google Calendar OAuth secrets and cached tokens
+credentials.json
+token.json

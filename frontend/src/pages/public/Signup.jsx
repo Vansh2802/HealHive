@@ -26,12 +26,12 @@ export default function Signup() {
         if (!form.role) { setError('Please select a role'); return }
         if (!form.name.trim()) { setError('Name is required'); nameRef.current?.focus(); return }
         if (!form.email.trim()) { setError('Email is required'); return }
-        if (form.password.length < 6) { setError('Password must be at least 6 characters'); return }
+        if (form.password.length < 8) { setError('Password must be at least 8 characters'); return }
         if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return }
 
         setLoading(true)
         try {
-            const data = await register(form.name.trim(), form.email, form.password, form.role)
+            const data = await register(form.name.trim(), form.email.trim(), form.password, form.role)
             if (!data.success) {
                 const err = typeof data.error === 'string' ? data.error : 'Signup failed. Please try again.'
                 throw new Error(err.includes('already') ? 'Email already exists. Please log in.' : err)
@@ -129,7 +129,7 @@ export default function Signup() {
                                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
                                 <div className="relative">
                                     <input type={showPassword ? 'text' : 'password'} name="password" value={form.password} onChange={handleChange}
-                                        placeholder="Create a password (min 6 chars)"
+                                        placeholder="Create a password (min 8 chars)"
                                         className="w-full px-4 py-3 pr-12 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder-slate-400 bg-white/80 outline-none focus:border-sage-400 focus:ring-2 focus:ring-sage-100 transition-all" />
                                     <button type="button" onClick={() => setShowPassword(!showPassword)}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1">

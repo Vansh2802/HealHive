@@ -1,10 +1,29 @@
-from .models import TherapySession, Availability
-from .serializers import BookSessionSerializer, TherapySessionSerializer, AvailabilitySerializer
+from datetime import timedelta
 
-from rest_framework import status
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from accounts.models import TherapistProfile, User
+from ai_chatbot.services.crew_agents import CrewAIEmailAgents
+from .email_utils import send_session_email
+from .models import Availability, Session, TherapySession
+from .serializers import AvailabilitySerializer, BookSessionSerializer, TherapySessionSerializer
+from .services.google_calendar import GoogleCalendarError, create_google_meet
+
+
+DEFAULT_SESSION_DURATION = timedelta(hours=1)
+
+
+def _parse_request_datetime(value, field_name):
+    parsed_value = parse_datetime(value) if isinstance(value, str) else value
+    if parsed_value is None:
+        raise ValueError(f'{field_name} must be a valid ISO datetime string.')
+    if timezone.is_naive(parsed_value):
+        parsed_value = timezone.make_aware(parsed_value, timezone=timezone.get_current_timezone())
+    return parsed_value
 
 
 class AvailabilityListCreateView(APIView):
@@ -48,15 +67,6 @@ class AvailabilityDeleteView(APIView):
             return Response({'success': False, 'error': 'Cannot delete a booked slot.'}, status=400)
         availability.delete()
         return Response({'success': True, 'message': 'Availability deleted.'})
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from django.utils import timezone
-from accounts.models import User
-from ai_chatbot.services.crew_agents import CrewAIEmailAgents
-from .models import TherapySession
-from .serializers import BookSessionSerializer, TherapySessionSerializer
-from .email_utils import send_session_email
 
 
 class SessionListView(APIView):
@@ -103,12 +113,87 @@ class BookSessionView(APIView):
             return Response({'success': False, 'error': serializer.errors}, status=400)
 
         session = serializer.save()
-        base_url = request.build_absolute_uri('/').rstrip('/')
-        session.meeting_link = f"{base_url}/video-call/{session.room_id}/"
-        session.save(update_fields=['meeting_link'])
+        start_time = session.session_time
+        end_time = start_time + DEFAULT_SESSION_DURATION
+
+        try:
+            # Place credentials.json beside manage.py or point GOOGLE_CREDENTIALS_FILE to it.
+            meeting_link = create_google_meet(
+                start_time=start_time,
+                end_time=end_time,
+                user_email=request.user.email,
+                therapist_email=session.therapist.user.email,
+            )
+        except (FileNotFoundError, GoogleCalendarError, ValueError) as exc:
+            session.delete()
+            return Response({'success': False, 'error': str(exc)}, status=502)
+
+        session.meeting_link = meeting_link
+        session.session_end_time = end_time
+        session.save(update_fields=['meeting_link', 'session_end_time'])
         send_session_email(session)
 
         return Response({'success': True, 'session': TherapySessionSerializer(session).data}, status=201)
+
+
+class CreateSessionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        payload = request.data
+
+        try:
+            user_id = int(payload.get('user') or payload.get('user_id'))
+            therapist_id = int(payload.get('therapist') or payload.get('therapist_id'))
+            start_time = _parse_request_datetime(payload.get('start_time'), 'start_time')
+            end_time = _parse_request_datetime(payload.get('end_time'), 'end_time')
+        except (TypeError, ValueError) as exc:
+            return Response({'success': False, 'error': str(exc)}, status=400)
+
+        if end_time <= start_time:
+            return Response({'success': False, 'error': 'end_time must be after start_time.'}, status=400)
+
+        try:
+            user = User.objects.get(id=user_id)
+            therapist = TherapistProfile.objects.get(id=therapist_id, is_verified=True)
+        except (User.DoesNotExist, TherapistProfile.DoesNotExist):
+            return Response({'success': False, 'error': 'User or therapist not found.'}, status=404)
+
+        if request.user.role != User.ROLE_ADMIN and request.user.id not in {user.id, therapist.user_id}:
+            return Response({'success': False, 'error': 'Unauthorized to create this session.'}, status=403)
+
+        if not user.email or not therapist.user.email:
+            return Response({'success': False, 'error': 'Both user and therapist must have email addresses.'}, status=400)
+
+        try:
+            # Token refresh and OAuth flow are handled inside the Google Calendar service.
+            meeting_link = create_google_meet(
+                start_time=start_time,
+                end_time=end_time,
+                user_email=user.email,
+                therapist_email=therapist.user.email,
+            )
+        except FileNotFoundError as exc:
+            return Response({'success': False, 'error': str(exc)}, status=500)
+        except (GoogleCalendarError, ValueError) as exc:
+            return Response({'success': False, 'error': str(exc)}, status=502)
+
+        session = Session.objects.create(
+            user=user,
+            therapist=therapist,
+            meeting_link=meeting_link,
+            scheduled_time=start_time,
+        )
+
+        return Response(
+            {
+                'success': True,
+                'session_id': session.id,
+                'meeting_link': session.meeting_link,
+                'scheduled_time': session.scheduled_time,
+            },
+            status=201,
+        )
 
 
 class JoinSessionView(APIView):
