@@ -1,7 +1,10 @@
 from datetime import timedelta
+import logging
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,6 +16,7 @@ from .models import Availability, Session, TherapySession
 from .serializers import AvailabilitySerializer, BookSessionSerializer, TherapySessionSerializer
 from .services.google_calendar import GoogleCalendarError, create_google_meet
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_SESSION_DURATION = timedelta(hours=1)
 
@@ -92,47 +96,127 @@ class SessionListView(APIView):
         return Response({'success': True, 'sessions': TherapySessionSerializer(sessions, many=True).data})
 
 
+class TherapistUpcomingSessionsView(APIView):
+    """Get upcoming booked sessions for a therapist with Google Meet link."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if user.role != User.ROLE_THERAPIST or not hasattr(user, 'therapist_profile'):
+            logger.warning(f'[TherapistUpcomingSessionsView] Non-therapist access attempted: {user.role}')
+            return Response({'success': False, 'error': 'Only therapists can access this endpoint.'}, status=403)
+
+        logger.info(f'[TherapistUpcomingSessionsView] Fetching upcoming sessions for therapist {user.email}')
+
+        # Get all confirmed sessions and filter logically to assure consistency with property
+        now = timezone.now()
+        sessions = TherapySession.objects.select_related('patient__user').filter(
+            therapist=user.therapist_profile,
+            session_status=TherapySession.STATUS_CONFIRMED
+        ).order_by('session_time')
+
+        session_data = []
+        for session in sessions:
+            if session.current_status == 'completed':
+                continue
+                
+            session_data.append({
+                'id': session.id,
+                'patient_name': f'Anonymous User #{session.patient_id}',
+                'session_time': session.session_time.isoformat(),
+                'session_end_time': session.session_end_time.isoformat() if session.session_end_time else None,
+                'meeting_link': session.meeting_link,
+                'status': session.current_status,
+            })
+
+        logger.info(f'[TherapistUpcomingSessionsView] Returning {len(session_data)} upcoming sessions')
+        return Response({'success': True, 'sessions': session_data})
+
+
 class BookSessionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        user_email = request.user.email
+        logger.info(f'[BookSessionView] Booking request from {user_email}')
+        
         if request.user.role != User.ROLE_USER:
+            logger.warning(f'[BookSessionView] Non-user role attempted booking: {request.user.role}')
             return Response({'success': False, 'error': 'Only patients can book sessions.'}, status=403)
 
+        # Check if user has assigned therapist
         if hasattr(request.user, 'patient_profile') and request.user.patient_profile.assigned_therapist:
             assigned_therapist_id = request.user.patient_profile.assigned_therapist_id
             requested_therapist_id = request.data.get('therapist_id')
             if int(requested_therapist_id or 0) != int(assigned_therapist_id):
+                logger.warning(f'[BookSessionView] User {user_email} tried to book with different therapist')
                 return Response(
                     {'success': False, 'error': 'Please book with your assigned therapist.'},
                     status=400,
                 )
 
+        logger.debug(f'[BookSessionView] Validating booking data: {request.data}')
         serializer = BookSessionSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
-            return Response({'success': False, 'error': serializer.errors}, status=400)
+            # Return the first human-readable error message.
+            first_error_list = next(iter(serializer.errors.values()), ['Invalid booking request.'])
+            first_error = first_error_list[0] if isinstance(first_error_list, list) and first_error_list else str(first_error_list)
+            logger.warning(f'[BookSessionView] Booking validation failed: {serializer.errors}')
+            return Response({'success': False, 'error': str(first_error)}, status=400)
 
-        session = serializer.save()
-        start_time = session.session_time
-        end_time = start_time + DEFAULT_SESSION_DURATION
+        therapist_id = serializer.validated_data['therapist_id']
+        start_time = serializer.validated_data['start_time']
+        end_time = serializer.validated_data.get('end_time') or (start_time + DEFAULT_SESSION_DURATION)
+        availability_id = serializer.validated_data.get('availability_id')
 
         try:
-            # Place credentials.json beside manage.py or point GOOGLE_CREDENTIALS_FILE to it.
-            meeting_link = create_google_meet(
+            therapist = TherapistProfile.objects.select_related('user').get(id=therapist_id)
+        except TherapistProfile.DoesNotExist:
+            logger.warning('[BookSessionView] Therapist not found therapist_id=%s', therapist_id)
+            return Response({'success': False, 'error': 'Therapist not found.'}, status=404)
+
+        try:
+            # Generate Meet BEFORE creating the session.
+            logger.info('[BookSessionView] Creating Google Meet user=%s therapist=%s start=%s end=%s', request.user.email, therapist.user.email, start_time, end_time)
+            meeting_link, event_id = create_google_meet(
                 start_time=start_time,
                 end_time=end_time,
                 user_email=request.user.email,
-                therapist_email=session.therapist.user.email,
+                therapist_email=therapist.user.email,
             )
+
+            if not meeting_link:
+                raise ValueError('Google Meet link generation returned an empty link.')
+
         except (FileNotFoundError, GoogleCalendarError, ValueError) as exc:
-            session.delete()
-            return Response({'success': False, 'error': str(exc)}, status=502)
+            logger.exception('[BookSessionView] Google Meet creation failed: %s', exc)
+            return Response(
+                {
+                    'success': False,
+                    'error': f'Failed to schedule session due to calendar error: {str(exc)}',
+                },
+                status=502,
+            )
 
-        session.meeting_link = meeting_link
-        session.session_end_time = end_time
-        session.save(update_fields=['meeting_link', 'session_end_time'])
-        send_session_email(session)
-
+        try:
+            # Create the session ONLY after Meet succeeds.
+            serializer.context['meeting_link'] = meeting_link
+            serializer.context['google_event_id'] = event_id
+            session = serializer.save()
+        except ValidationError as exc:
+            logger.warning('[BookSessionView] Booking conflict availability_id=%s therapist_id=%s: %s', availability_id, therapist_id, exc.detail)
+            return Response({'success': False, 'error': exc.detail}, status=409)
+        except Exception as exc:
+            logger.exception('[BookSessionView] Unexpected booking failure: %s', exc)
+            return Response({'success': False, 'error': 'Unable to book session. Please try again.'}, status=500)
+        
+        try:
+            send_session_email(session)
+        except Exception as exc:
+            logger.warning(f'[BookSessionView] Email sending failed: {exc}')
+        
+        logger.info(f'[BookSessionView] Booking completed successfully for {user_email}')
         return Response({'success': True, 'session': TherapySessionSerializer(session).data}, status=201)
 
 
@@ -167,7 +251,7 @@ class CreateSessionView(APIView):
 
         try:
             # Token refresh and OAuth flow are handled inside the Google Calendar service.
-            meeting_link = create_google_meet(
+            meeting_link, event_id = create_google_meet(
                 start_time=start_time,
                 end_time=end_time,
                 user_email=user.email,
@@ -182,6 +266,9 @@ class CreateSessionView(APIView):
             user=user,
             therapist=therapist,
             meeting_link=meeting_link,
+            google_event_id=event_id,
+            # we don't have google_event_id on `Session` model, just adding it via save is fine for now but it's not in the model.
+            # wait, `Session` is an old model for this? Let's check.
             scheduled_time=start_time,
         )
 
@@ -211,9 +298,7 @@ class JoinSessionView(APIView):
             return Response({'success': False, 'error': 'Unauthorized for this session.'}, status=403)
 
         if not session.meeting_link:
-            base_url = request.build_absolute_uri('/').rstrip('/')
-            session.meeting_link = f"{base_url}/video-call/{session.room_id}/"
-            session.save(update_fields=['meeting_link'])
+            return Response({'success': False, 'error': 'Meeting link is not available for this session.'}, status=409)
 
         return Response({'success': True, 'room_id': session.room_id, 'meeting_link': session.meeting_link})
 

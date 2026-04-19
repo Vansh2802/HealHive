@@ -36,8 +36,8 @@ export default function UserDashboard() {
             .finally(() => setLoading(false))
     }, [user?.id])
 
-    const upcoming = sessions.filter(s => s.status === 'upcoming')
-    const completed = sessions.filter(s => s.status === 'completed')
+    const upcoming = sessions.filter(s => s.status === 'upcoming' || s.status === 'ongoing')
+    const completed = sessions.filter(s => s.status === 'completed' || s.status === 'cancelled')
 
     return (
         <DashboardLayout navItems={navItems} title="Dashboard">
@@ -120,19 +120,31 @@ export default function UserDashboard() {
                                             <h4 className="text-sm font-semibold text-slate-800">{s.therapistName || 'Therapist'}</h4>
                                             <p className="text-xs text-slate-500 mt-0.5">Video Session</p>
                                         </div>
-                                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-sage-50 text-sage-700 border border-sage-200">
-                                            Upcoming
+                                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium border capitalize ${
+                                            s.status === 'ongoing' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-sage-50 text-sage-700 border-sage-200'
+                                        }`}>
+                                            {s.status}
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-4 text-xs text-slate-500 mb-3">
                                         <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{s.date}</span>
                                         <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{s.time}</span>
                                     </div>
-                                    {s.meeting_link && (
+                                    {(s.meeting_link && s.status === 'ongoing') && (
                                         <button onClick={() => navigate(`/user/session?link=${encodeURIComponent(s.meeting_link)}`)}
-                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-sage-600 to-sage-500 hover:shadow-lg hover:shadow-sage-300/30 transition-all">
+                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-amber-600 to-amber-500 hover:shadow-lg hover:shadow-amber-300/30 transition-all">
                                             <Video className="w-4 h-4" /> Join Session
                                         </button>
+                                    )}
+                                    {(s.meeting_link && s.status === 'upcoming') && (
+                                        <div className="w-full py-2.5 rounded-xl text-center text-xs font-medium text-slate-500 bg-slate-100 flex items-center justify-center gap-2">
+                                            <Clock className="w-4 h-4" /> Available exactly at {s.time}
+                                        </div>
+                                    )}
+                                    {!s.meeting_link && (
+                                        <div className="w-full py-2.5 rounded-xl text-center text-xs font-medium text-slate-400 bg-slate-50 flex items-center justify-center gap-2">
+                                            Link unavailable
+                                        </div>
                                     )}
                                 </motion.div>
                             ))}
@@ -167,8 +179,10 @@ export default function UserDashboard() {
                                                 <span>{s.time}</span>
                                             </div>
                                         </div>
-                                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                            Completed
+                                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium border capitalize ${
+                                            s.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        }`}>
+                                            {s.status}
                                         </span>
                                     </div>
                                 </motion.div>

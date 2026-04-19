@@ -29,6 +29,22 @@ function extractErrorMessage(errorValue, fallback) {
     return fallback
 }
 
+function extractApiError(data, fallback) {
+    if (!data || typeof data !== 'object') {
+        return fallback
+    }
+
+    if (typeof data.detail === 'string' && data.detail.trim()) {
+        return data.detail
+    }
+
+    if (typeof data.message === 'string' && data.message.trim()) {
+        return data.message
+    }
+
+    return extractErrorMessage(data.error, fallback)
+}
+
 export async function fetchAvailability() {
     const token = getToken()
     try {
@@ -62,7 +78,7 @@ export async function createAvailability({ start_time, end_time }) {
         if (!res.ok || !data.success) {
             return {
                 success: false,
-                error: extractErrorMessage(data.error, 'Failed to add availability.'),
+                error: extractApiError(data, 'Failed to add availability.'),
             }
         }
         return {
@@ -83,7 +99,7 @@ export async function deleteAvailability(id) {
         })
         const data = await res.json()
         if (!res.ok || !data.success) {
-            return { success: false, error: extractErrorMessage(data.error, 'Failed to delete slot.') }
+            return { success: false, error: extractApiError(data, 'Failed to delete slot.') }
         }
         return { success: true }
     } catch {

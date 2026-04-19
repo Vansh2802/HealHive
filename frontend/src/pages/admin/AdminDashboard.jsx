@@ -45,12 +45,21 @@ export default function AdminDashboard() {
     }, [])
 
     const handleReview = async (therapistId, action) => {
+        console.log('[AdminDashboard] Reviewing therapist:', therapistId, 'with action:', action)
         const result = await reviewTherapist(therapistId, action)
+        console.log('[AdminDashboard] Review result:', result)
         if (result.success) {
-            setTherapists(prev => prev.map(t =>
-                t._id === therapistId ? { ...t, verified: action === 'approve' } : t
-            ))
+            // Update the local state to reflect the change
+            setTherapists(prev => prev.map(t => {
+                const id = t._id || t.id
+                if (id === therapistId) {
+                    return { ...t, verified: action === 'approve', isApproved: action === 'approve', isRejected: action === 'reject' }
+                }
+                return t
+            }))
             toast.success(`Therapist ${action === 'approve' ? 'approved' : 'rejected'}`)
+            // Reload data to ensure consistency
+            setTimeout(() => window.location.reload(), 1000)
         } else {
             toast.error(result.error || 'Action failed')
         }
@@ -62,8 +71,10 @@ export default function AdminDashboard() {
         { key: 'sessions', label: 'Sessions', icon: CalendarDays },
     ]
 
-    const pending = therapists.filter(t => !t.verified)
-    const approved = therapists.filter(t => t.verified)
+    console.log('[AdminDashboard] Therapists data:', therapists)
+    const pending = therapists.filter(t => !t.verified && !t.isApproved)
+    const approved = therapists.filter(t => t.verified || t.isApproved)
+    console.log('[AdminDashboard] Pending:', pending.length, 'Approved:', approved.length)
 
     return (
         <DashboardLayout navItems={navItems} title="Admin Dashboard">
@@ -144,30 +155,33 @@ export default function AdminDashboard() {
                         </div>
                     ) : (
                         <div className="space-y-3 mb-8">
-                            {pending.map(t => (
-                                <motion.div key={t._id} variants={fadeUp}
-                                    className="bg-white rounded-2xl border border-amber-100 p-5 flex items-center justify-between hover:shadow-md transition-all">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-                                            <User className="w-5 h-5 text-amber-600" />
+                            {pending.map(t => {
+                                const therapistId = t._id || t.id
+                                return (
+                                    <motion.div key={therapistId} variants={fadeUp}
+                                        className="bg-white rounded-2xl border border-amber-100 p-5 flex items-center justify-between hover:shadow-md transition-all">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                                                <User className="w-5 h-5 text-amber-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-slate-800">{t.name || t.userId?.name || 'Unknown'}</p>
+                                                <p className="text-xs text-slate-500">{t.email || t.specialization || 'General'}</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-800">{t.name || t.userId?.name || 'Unknown'}</p>
-                                            <p className="text-xs text-slate-500">{t.specialization || 'General'}</p>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleReview(therapistId, 'approve')}
+                                                className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 transition-all">
+                                                Approve
+                                            </button>
+                                            <button onClick={() => handleReview(therapistId, 'reject')}
+                                                className="px-4 py-2 rounded-xl text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-all">
+                                                Reject
+                                            </button>
                                         </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => handleReview(t._id, 'approve')}
-                                            className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 transition-all">
-                                            Approve
-                                        </button>
-                                        <button onClick={() => handleReview(t._id, 'reject')}
-                                            className="px-4 py-2 rounded-xl text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-all">
-                                            Reject
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            ))}
+                                    </motion.div>
+                                )
+                            })}
                         </div>
                     )}
 
@@ -182,23 +196,26 @@ export default function AdminDashboard() {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {approved.map(t => (
-                                <motion.div key={t._id} variants={fadeUp}
-                                    className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center justify-between hover:shadow-md transition-all">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-sage-100 flex items-center justify-center">
-                                            <User className="w-5 h-5 text-sage-600" />
+                            {approved.map(t => {
+                                const therapistId = t._id || t.id
+                                return (
+                                    <motion.div key={therapistId} variants={fadeUp}
+                                        className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center justify-between hover:shadow-md transition-all">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-sage-100 flex items-center justify-center">
+                                                <User className="w-5 h-5 text-sage-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-slate-800">{t.name || t.userId?.name || 'Unknown'}</p>
+                                                <p className="text-xs text-slate-500">{t.email || t.specialization || 'General'}</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-800">{t.name || t.userId?.name || 'Unknown'}</p>
-                                            <p className="text-xs text-slate-500">{t.specialization || 'General'}</p>
-                                        </div>
-                                    </div>
-                                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                        Verified
-                                    </span>
-                                </motion.div>
-                            ))}
+                                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            Verified
+                                        </span>
+                                    </motion.div>
+                                )
+                            })}
                         </div>
                     )}
                 </motion.div>
@@ -233,9 +250,10 @@ export default function AdminDashboard() {
                                             <td className="px-5 py-3 text-slate-700">{s.therapistName || 'Therapist'}</td>
                                             <td className="px-5 py-3 text-slate-500">{s.date} · {s.time}</td>
                                             <td className="px-5 py-3">
-                                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
                                                     s.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
                                                     s.status === 'upcoming' ? 'bg-sage-50 text-sage-700' :
+                                                    s.status === 'ongoing' ? 'bg-amber-50 text-amber-700' :
                                                     'bg-red-50 text-red-600'
                                                 }`}>{s.status}</span>
                                             </td>

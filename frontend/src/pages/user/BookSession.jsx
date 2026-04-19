@@ -8,6 +8,8 @@ import { SkeletonCard } from '../../components/Skeleton'
 import PageTransition from '../../components/PageTransition'
 import { Calendar, Clock, CheckCircle, User, Loader2, ArrowLeft } from 'lucide-react'
 
+const IST_TIMEZONE = 'Asia/Kolkata'
+
 export default function BookSession() {
     const { user } = useAuth()
     const navigate = useNavigate()
@@ -30,13 +32,53 @@ export default function BookSession() {
             .finally(() => setLoading(false))
     }, [])
 
-    // Group availability by date for selected therapist
+    // Group availability by date for selected therapist and filter out past/booked slots
+    
+    // Helper to format time from ISO string
+    const formatTime = (isoString) => {
+        try {
+            const date = new Date(isoString)
+            return date.toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: IST_TIMEZONE,
+            })
+        } catch {
+            return isoString
+        }
+    }
+
+    const formatDate = (isoString) => {
+        try {
+            return new Date(isoString).toLocaleDateString('en-IN', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                timeZone: IST_TIMEZONE,
+            })
+        } catch {
+            return isoString
+        }
+    }
+
+    // Helper to check if slot is in the past
+    const isSlotPast = (isoString) => {
+        try {
+            return new Date(isoString) < new Date()
+        } catch {
+            return false
+        }
+    }
+
+    // Filter and group availability
     const groupedAvailability = selectedTherapist
-        ? selectedTherapist.availability.reduce((acc, slot) => {
-            if (!acc[slot.date]) acc[slot.date] = []
-            acc[slot.date].push(slot)
-            return acc
-        }, {})
+        ? selectedTherapist.availability
+            .filter(slot => !isSlotPast(slot.startTime) && !slot.isBooked)
+            .reduce((acc, slot) => {
+                if (!acc[slot.date]) acc[slot.date] = []
+                acc[slot.date].push(slot)
+                return acc
+            }, {})
         : {}
 
     const handleBook = async () => {
@@ -47,6 +89,8 @@ export default function BookSession() {
         const result = await createSessionBooking({
             therapistId: selectedTherapist.id,
             slotId: selectedSlot.id,
+            start_time: selectedSlot.startTime,
+            end_time: selectedSlot.endTime,
         })
 
         if (result?.success) {
@@ -86,7 +130,7 @@ export default function BookSession() {
                         </div>
                         <h2 className="text-2xl font-bold text-wood-800 mb-2">Session Booked!</h2>
                         <p className="text-wood-500 text-sm mb-1">
-                            {selectedTherapist.name} — {selectedSlot.date} at {selectedSlot.startTime}
+                            {selectedTherapist.name} — {formatDate(selectedSlot.startTime)} at {formatTime(selectedSlot.startTime)}
                         </p>
                         <p className="text-xs text-wood-400 mb-6">You'll receive session details in your dashboard.</p>
                         <button onClick={() => navigate('/user/dashboard')}
@@ -120,29 +164,36 @@ export default function BookSession() {
                                         <p className="text-sm text-wood-500">No therapists available yet</p>
                                     </div>
                                 ) : (
-                                    therapists.map(t => (
-                                        <motion.button
-                                            key={t.id}
-                                            whileHover={{ scale: 1.01 }}
-                                            whileTap={{ scale: 0.99 }}
-                                            onClick={() => { setSelectedTherapist(t); setSelectedDate(null); setSelectedSlot(null) }}
-                                            className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all duration-200 ${
-                                                selectedTherapist?.id === t.id
-                                                    ? 'border-wood-400 bg-wood-50/50 shadow-sm'
-                                                    : 'border-wood-100 bg-white hover:border-wood-200 hover:shadow-sm'
-                                            }`}
-                                        >
-                                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-wood-100 to-beige-100 flex items-center justify-center flex-shrink-0">
-                                                <User className="w-6 h-6 text-wood-500" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <h3 className="text-sm font-semibold text-wood-800">{t.name}</h3>
-                                                <p className="text-xs text-wood-500">{t.specialization}</p>
-                                                <p className="text-xs text-wood-400 mt-0.5">{t.availability.length} slots available</p>
-                                            </div>
-                                            {selectedTherapist?.id === t.id && <CheckCircle className="w-5 h-5 text-wood-500 ml-auto" />}
-                                        </motion.button>
-                                    ))
+                                    therapists.map(t => {
+                                        const availableCount = t.availability.filter(s => !isSlotPast(s.startTime) && !s.isBooked).length
+                                        return (
+                                            <motion.button
+                                                key={t.id}
+                                                whileHover={{ scale: 1.01 }}
+                                                whileTap={{ scale: 0.99 }}
+                                                onClick={() => { setSelectedTherapist(t); setSelectedDate(null); setSelectedSlot(null) }}
+                                                className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all duration-200 ${
+                                                    selectedTherapist?.id === t.id
+                                                        ? 'border-wood-400 bg-wood-50/50 shadow-sm'
+                                                        : 'border-wood-100 bg-white hover:border-wood-200 hover:shadow-sm'
+                                                }`}
+                                            >
+                                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-wood-100 to-beige-100 flex items-center justify-center flex-shrink-0">
+                                                    <User className="w-6 h-6 text-wood-500" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <h3 className="text-sm font-semibold text-wood-800">{t.name}</h3>
+                                                    <p className="text-xs text-wood-500">{t.specialization}</p>
+                                                    <p className={`text-xs mt-0.5 ${availableCount === 0 ? 'text-red-500' : 'text-wood-400'}`}>
+                                                        {availableCount === 0
+                                                            ? '❌ No available slots'
+                                                            : `✅ ${availableCount} slot${availableCount === 1 ? '' : 's'} available`}
+                                                    </p>
+                                                </div>
+                                                {selectedTherapist?.id === t.id && <CheckCircle className="w-5 h-5 text-wood-500 ml-auto" />}
+                                            </motion.button>
+                                        )
+                                    })
                                 )}
                             </div>
                         </div>
@@ -166,33 +217,48 @@ export default function BookSession() {
                                                     <button onClick={() => { setSelectedDate(date); setSelectedSlot(null) }}
                                                         className="flex items-center gap-2 text-sm font-medium text-wood-700 mb-3">
                                                         <Calendar className="w-4 h-4 text-wood-500" />
-                                                        {new Date(date + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                        {new Date(`${date}T00:00:00+05:30`).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: IST_TIMEZONE })}
                                                     </button>
                                                     {selectedDate === date && (
                                                         <div className="flex flex-wrap gap-2">
-                                                            {slots.map(slot => (
-                                                                <motion.button
-                                                                    key={slot.id}
-                                                                    whileHover={{ scale: 1.05 }}
-                                                                    whileTap={{ scale: 0.95 }}
-                                                                    onClick={() => setSelectedSlot(slot)}
-                                                                    className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                                                                        selectedSlot?.id === slot.id
-                                                                            ? 'bg-wood-600 text-white shadow-sm'
-                                                                            : 'bg-wood-100 text-wood-600 hover:bg-wood-200'
-                                                                    }`}
-                                                                >
-                                                                    <Clock className="w-3 h-3" />
-                                                                    {slot.startTime} - {slot.endTime}
-                                                                </motion.button>
-                                                            ))}
+                                                            {slots.map(slot => {
+                                                                const isPast = isSlotPast(slot.startTime)
+                                                                const isBooked = slot.isBooked
+                                                                const isDisabled = isPast || isBooked
+                                                                const slotStatus = isPast ? 'Unavailable' : isBooked ? 'Booked' : null
+                                                                
+                                                                return (
+                                                                    <motion.button
+                                                                        key={slot.id}
+                                                                        whileHover={!isDisabled ? { scale: 1.05 } : {}}
+                                                                        whileTap={!isDisabled ? { scale: 0.95 } : {}}
+                                                                        onClick={() => !isDisabled && setSelectedSlot(slot)}
+                                                                        disabled={isDisabled}
+                                                                        className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                                                                            isDisabled
+                                                                                ? 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-60'
+                                                                                : selectedSlot?.id === slot.id
+                                                                                    ? 'bg-wood-600 text-white shadow-sm'
+                                                                                    : 'bg-wood-100 text-wood-600 hover:bg-wood-200'
+                                                                        }`}
+                                                                        title={slotStatus ? slotStatus : 'Available - Click to select'}
+                                                                    >
+                                                                        <Clock className="w-3 h-3" />
+                                                                        <span>{formatTime(slot.startTime)} - {formatTime(slot.endTime)}</span>
+                                                                        {slotStatus && <span className="ml-1 text-xs opacity-75">({slotStatus})</span>}
+                                                                    </motion.button>
+                                                                )
+                                                            })}
                                                         </div>
                                                     )}
                                                 </motion.div>
                                             ))}
                                         </div>
                                     ) : (
-                                        <p className="text-sm text-wood-500 p-4 bg-white rounded-2xl border border-wood-100">No availability set yet.</p>
+                                        <div className="p-4 bg-white rounded-2xl border border-wood-100">
+                                            <p className="text-sm text-wood-600 font-medium">📅 No available slots</p>
+                                            <p className="text-xs text-wood-400 mt-2">This therapist hasn't set any available times yet. Please check back soon or select another therapist.</p>
+                                        </div>
                                     )}
 
                                     {selectedSlot && (

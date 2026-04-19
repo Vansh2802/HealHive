@@ -1,6 +1,7 @@
 import { useAuth } from '../../context/AuthContext'
+import { useEffect, useState } from 'react'
 import { CheckCircle, Clock, XCircle, ArrowRight, FileText, Shield, Sparkles } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 const stages = [
     { key: 'submitted', label: 'Application Submitted', icon: FileText },
@@ -11,8 +12,43 @@ const stages = [
 
 export default function VerificationStatus() {
     const { user } = useAuth()
-    const verified = !!user?.therapistVerified
-    const currentStage = verified ? 3 : 1
+    const navigate = useNavigate()
+    const [status, setStatus] = useState(null)
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        // Check user's therapist status
+        const therapistStatus = user?.therapistStatus
+        console.log('[VerificationStatus] User therapist status:', therapistStatus)
+        console.log('[VerificationStatus] Full user data:', user)
+        setStatus(therapistStatus)
+        setLoading(false)
+
+        // If approved, redirect to dashboard after a moment
+        if (therapistStatus === 'approved') {
+            setTimeout(() => navigate('/therapist/dashboard'), 2000)
+        }
+    }, [user, navigate])
+
+    if (loading) {
+        return (
+            <div className="pt-16 min-h-screen bg-gradient-to-b from-wood-50 to-white flex items-center justify-center">
+                <div className="text-center">
+                    <Sparkles className="w-8 h-8 text-wood-500 animate-spin mx-auto mb-3" />
+                    <p className="text-wood-600">Loading verification status...</p>
+                </div>
+            </div>
+        )
+    }
+
+    const isPending = status === 'pending'
+    const isApproved = status === 'approved'
+    const isRejected = status === 'rejected'
+
+    // Determine current stage
+    let currentStage = 0
+    if (isApproved) currentStage = 3
+    else if (isPending) currentStage = 1
 
     return (
         <div className="pt-16 min-h-screen bg-gradient-to-b from-wood-50 to-white">
@@ -43,7 +79,7 @@ export default function VerificationStatus() {
                                     </div>
                                     <div className="pt-2 pb-6">
                                         <h3 className={`text-sm font-semibold ${isCompleted ? 'text-wood-800' : 'text-wood-400'}`}>{stage.label}</h3>
-                                        {isCurrent && !verified && (
+                                        {isCurrent && !isApproved && (
                                             <p className="text-xs text-wood-500 mt-1 font-medium flex items-center gap-1"><Sparkles className="w-3 h-3" /> In progress...</p>
                                         )}
                                         {isCompleted && !isCurrent && <p className="text-xs text-emerald-500 mt-1">Completed</p>}
@@ -54,7 +90,7 @@ export default function VerificationStatus() {
                     </div>
                 </div>
 
-                {verified ? (
+                {isApproved ? (
                     <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-6 text-center">
                         <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
                         <h3 className="font-semibold text-emerald-800 mb-1">You're verified!</h3>
@@ -63,6 +99,12 @@ export default function VerificationStatus() {
                             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-emerald-600 hover:shadow-lg transition-all">
                             Go to Dashboard <ArrowRight className="w-4 h-4" />
                         </Link>
+                    </div>
+                ) : isRejected ? (
+                    <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-center">
+                        <XCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+                        <h3 className="font-semibold text-red-800 mb-1">Application Rejected</h3>
+                        <p className="text-sm text-red-600">Your application has been rejected. Please contact support for more information.</p>
                     </div>
                 ) : (
                     <div className="bg-amber-50 border border-amber-100 rounded-2xl p-6 text-center">
