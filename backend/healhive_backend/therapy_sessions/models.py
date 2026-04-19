@@ -1,7 +1,7 @@
 import uuid
 from django.db import models
 
-from accounts.models import TherapistProfile, PatientProfile
+from accounts.models import TherapistProfile, PatientProfile, User
 class Availability(models.Model):
     therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='availabilities')
     start_time = models.DateTimeField()
@@ -54,3 +54,16 @@ class TherapySession(models.Model):
         if not self.meeting_link:
             self.meeting_link = f"/video-call/{self.room_id}/"
         super().save(*args, **kwargs)
+
+
+class Session(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='google_calendar_sessions')
+    therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='google_calendar_sessions')
+    meeting_link = models.URLField()
+    scheduled_time = models.DateTimeField()
+
+    class Meta:
+        ordering = ['scheduled_time']
+
+    def __str__(self):
+        return f"{self.user.full_name} with {self.therapist.user.full_name} at {self.scheduled_time}"

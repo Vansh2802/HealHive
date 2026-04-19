@@ -21,7 +21,7 @@ class AuthUserSerializer(serializers.ModelSerializer):
 
     def get_therapistVerified(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
-        return profile.is_verified if profile else None
+        return (profile.is_approved or profile.is_verified) if profile else None
 
     def get_therapistProfileId(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
@@ -111,6 +111,13 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError('Invalid credentials or wrong role selected.')
         if user.role != role:
             raise serializers.ValidationError('Invalid credentials or wrong role selected.')
+
+        if role == User.ROLE_THERAPIST:
+            profile = getattr(user, 'therapist_profile', None)
+            if not profile or not (profile.is_approved or profile.is_verified):
+                raise serializers.ValidationError('Awaiting admin approval')
+            if profile.is_rejected:
+                raise serializers.ValidationError('Therapist application has been rejected.')
 
         attrs['user'] = user
         return attrs

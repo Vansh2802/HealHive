@@ -3,20 +3,44 @@ import { getToken } from './auth'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
+function mapAvailabilitySlot(slot) {
+    return {
+        id: slot.id,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        is_booked: slot.is_booked,
+    }
+}
+
+function extractErrorMessage(errorValue, fallback) {
+    if (typeof errorValue === 'string' && errorValue.trim()) {
+        return errorValue
+    }
+    if (errorValue && typeof errorValue === 'object') {
+        const firstKey = Object.keys(errorValue)[0]
+        const firstValue = firstKey ? errorValue[firstKey] : null
+        if (Array.isArray(firstValue) && firstValue.length > 0) {
+            return String(firstValue[0])
+        }
+        if (typeof firstValue === 'string' && firstValue.trim()) {
+            return firstValue
+        }
+    }
+    return fallback
+}
+
 export async function fetchAvailability() {
     const token = getToken()
     try {
-        const res = await fetch(`${API_URL}/therapists/my/availability`, {
+        const res = await fetch(`${API_URL}/sessions/availability/`, {
             headers: { Authorization: `Bearer ${token}` },
         })
+        if (!res.ok) {
+            return []
+        }
         const data = await res.json()
         if (!data.success) return []
-        return data.availabilities.map(slot => ({
-            id: slot._id,
-            start_time: `${slot.date}T${slot.startTime}`,
-            end_time: `${slot.date}T${slot.endTime}`,
-            is_booked: slot.isBooked,
-        }))
+        return (data.availabilities || []).map(mapAvailabilitySlot)
     } catch {
         return []
     }
@@ -24,23 +48,27 @@ export async function fetchAvailability() {
 
 export async function createAvailability({ start_time, end_time }) {
     const token = getToken()
-    // Parse datetime-local values into date + time components
-    const startDate = new Date(start_time)
-    const endDate = new Date(end_time)
-    const date = startDate.toISOString().slice(0, 10)
-    const startTime = startDate.toTimeString().slice(0, 5)
-    const endTime = endDate.toTimeString().slice(0, 5)
 
     try {
-        const res = await fetch(`${API_URL}/therapists/my/availability`, {
+        const res = await fetch(`${API_URL}/sessions/availability/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ date, startTime, endTime }),
+            body: JSON.stringify({ start_time, end_time }),
         })
-        return await res.json()
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+            return {
+                success: false,
+                error: extractErrorMessage(data.error, 'Failed to add availability.'),
+            }
+        }
+        return {
+            success: true,
+            availability: mapAvailabilitySlot(data.availability),
+        }
     } catch {
         return { success: false, error: 'Failed to add availability.' }
     }
@@ -49,11 +77,15 @@ export async function createAvailability({ start_time, end_time }) {
 export async function deleteAvailability(id) {
     const token = getToken()
     try {
-        const res = await fetch(`${API_URL}/therapists/my/availability/${id}`, {
+        const res = await fetch(`${API_URL}/sessions/availability/${id}/`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
         })
-        return await res.json()
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+            return { success: false, error: extractErrorMessage(data.error, 'Failed to delete slot.') }
+        }
+        return { success: true }
     } catch {
         return { success: false, error: 'Failed to delete slot.' }
     }

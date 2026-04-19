@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -33,6 +34,26 @@ class TherapistProfile(models.Model):
     university_name = models.CharField(max_length=255, blank=True)
     bio = models.TextField(blank=True)
     is_verified = models.BooleanField(default=False)
+    is_approved = models.BooleanField(default=False)
+    is_rejected = models.BooleanField(default=False)
+    application_date = models.DateTimeField(auto_now_add=True)
+    approval_date = models.DateTimeField(null=True, blank=True)
+
+    def approve(self):
+        self.is_approved = True
+        self.is_rejected = False
+        self.is_verified = True
+        self.approval_date = timezone.now()
+
+    def reject(self):
+        self.is_approved = False
+        self.is_rejected = True
+        self.is_verified = False
+        self.approval_date = None
+
+    @property
+    def is_pending(self):
+        return not self.is_approved and not self.is_rejected
 
     def __str__(self):
         return self.user.full_name

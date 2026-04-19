@@ -76,3 +76,28 @@ The frontend continues to call the existing Django endpoints without changing re
 - `message_id` is included in frontend chat payloads.
 - Environment secrets are read from `.env` and are not committed.
 - The backend remains functionally unchanged; this is only a structural refactor.
+
+## Google Calendar OAuth Setup
+
+To enable Google Meet generation, create a manual `credentials.json` file in the backend root directory, the same folder as `manage.py`:
+
+`backend/healhive_backend/credentials.json`
+
+Do not paste `client_id` or `client_secret` into Python files. Download the OAuth client JSON from Google Cloud Console, then place it in that path. The file should never be committed to GitHub, and it is already ignored by `.gitignore`.
+
+Example structure:
+
+```json
+{
+	"installed": {
+		"client_id": "YOUR_CLIENT_ID_HERE",
+		"project_id": "your_project_name",
+		"auth_uri": "https://accounts.google.com/o/oauth2/auth",
+		"token_uri": "https://oauth2.googleapis.com/token",
+		"client_secret": "YOUR_CLIENT_SECRET_HERE",
+		"redirect_uris": ["http://localhost"]
+	}
+}
+```
+
+Run `python auth.py` once from `backend/healhive_backend/`. That script opens a browser, creates `token.json`, and the backend reuses it automatically for future Google Calendar API calls.
