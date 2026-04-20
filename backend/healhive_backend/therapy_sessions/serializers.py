@@ -92,9 +92,6 @@ class BookSessionSerializer(serializers.Serializer):
         meeting_link = self.context.get('meeting_link')
         google_event_id = self.context.get('google_event_id')
 
-        if not meeting_link:
-            raise serializers.ValidationError({'meeting_link': 'meeting_link is required to create a session.'})
-
         user = self.context['request'].user
         patient_profile, _ = PatientProfile.objects.get_or_create(user=user)
         therapist = TherapistProfile.objects.get(id=validated_data['therapist_id'])

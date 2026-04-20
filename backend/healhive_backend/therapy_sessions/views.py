@@ -140,6 +140,7 @@ class BookSessionView(APIView):
     def post(self, request):
         user_email = request.user.email
         logger.info(f'[BookSessionView] Booking request from {user_email}')
+        logger.info('[BookSessionView] Incoming request payload: %s', request.data)
         
         if request.user.role != User.ROLE_USER:
             logger.warning(f'[BookSessionView] Non-user role attempted booking: {request.user.role}')
@@ -176,8 +177,9 @@ class BookSessionView(APIView):
             logger.warning('[BookSessionView] Therapist not found therapist_id=%s', therapist_id)
             return Response({'success': False, 'error': 'Therapist not found.'}, status=404)
 
+        meeting_link = None
+        event_id = None
         try:
-            # Generate Meet BEFORE creating the session.
             logger.info('[BookSessionView] Creating Google Meet user=%s therapist=%s start=%s end=%s', request.user.email, therapist.user.email, start_time, end_time)
             meeting_link, event_id = create_google_meet(
                 start_time=start_time,
@@ -185,19 +187,14 @@ class BookSessionView(APIView):
                 user_email=request.user.email,
                 therapist_email=therapist.user.email,
             )
-
             if not meeting_link:
-                raise ValueError('Google Meet link generation returned an empty link.')
-
-        except (FileNotFoundError, GoogleCalendarError, ValueError) as exc:
-            logger.exception('[BookSessionView] Google Meet creation failed: %s', exc)
-            return Response(
-                {
-                    'success': False,
-                    'error': f'Failed to schedule session due to calendar error: {str(exc)}',
-                },
-                status=502,
-            )
+                logger.error('[BookSessionView] Google Meet creation returned empty link')
+                meeting_link = None
+                event_id = None
+        except Exception as exc:
+            logger.exception('[BookSessionView] Meet generation failed: %s', exc)
+            meeting_link = None
+            event_id = None
 
         try:
             # Create the session ONLY after Meet succeeds.
@@ -217,7 +214,8 @@ class BookSessionView(APIView):
             logger.warning(f'[BookSessionView] Email sending failed: {exc}')
         
         logger.info(f'[BookSessionView] Booking completed successfully for {user_email}')
-        return Response({'success': True, 'session': TherapySessionSerializer(session).data}, status=201)
+        message = 'Session booked successfully' if session.meeting_link else 'Session booked but meeting link unavailable'
+        return Response({'success': True, 'message': message, 'session': TherapySessionSerializer(session).data}, status=201)
 
 
 class CreateSessionView(APIView):
@@ -225,6 +223,7 @@ class CreateSessionView(APIView):
 
     def post(self, request):
         payload = request.data
+        logger.info('[CreateSessionView] Incoming request payload: %s', payload)
 
         try:
             user_id = int(payload.get('user') or payload.get('user_id'))
@@ -249,18 +248,23 @@ class CreateSessionView(APIView):
         if not user.email or not therapist.user.email:
             return Response({'success': False, 'error': 'Both user and therapist must have email addresses.'}, status=400)
 
+        meeting_link = None
+        event_id = None
         try:
-            # Token refresh and OAuth flow are handled inside the Google Calendar service.
             meeting_link, event_id = create_google_meet(
                 start_time=start_time,
                 end_time=end_time,
                 user_email=user.email,
                 therapist_email=therapist.user.email,
             )
-        except FileNotFoundError as exc:
-            return Response({'success': False, 'error': str(exc)}, status=500)
-        except (GoogleCalendarError, ValueError) as exc:
-            return Response({'success': False, 'error': str(exc)}, status=502)
+            if not meeting_link:
+                logger.error('[CreateSessionView] Google Meet creation returned empty link')
+                meeting_link = None
+                event_id = None
+        except Exception as exc:
+            logger.exception('[CreateSessionView] Meet generation failed: %s', exc)
+            meeting_link = None
+            event_id = None
 
         session = Session.objects.create(
             user=user,
@@ -275,6 +279,7 @@ class CreateSessionView(APIView):
         return Response(
             {
                 'success': True,
+                'message': 'Session booked successfully' if session.meeting_link else 'Session booked but meeting link unavailable',
                 'session_id': session.id,
                 'meeting_link': session.meeting_link,
                 'scheduled_time': session.scheduled_time,

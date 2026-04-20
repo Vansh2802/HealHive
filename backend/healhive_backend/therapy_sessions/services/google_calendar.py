@@ -14,7 +14,6 @@ import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.utils import timezone
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -27,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 TIMEZONE_NAME = 'Asia/Kolkata'
+BASE_DIR = Path(__file__).resolve().parents[2]
+TOKEN_FILE = BASE_DIR / 'token.json'
 
 
 class GoogleCalendarError(RuntimeError):
@@ -34,7 +35,7 @@ class GoogleCalendarError(RuntimeError):
 
 
 def _resolve_token_path() -> Path:
-    return Path(settings.BASE_DIR) / 'token.json'
+    return TOKEN_FILE
 
 
 def get_google_credentials() -> Credentials:
@@ -45,16 +46,14 @@ def get_google_credentials() -> Credentials:
     """
 
     token_path = _resolve_token_path()
-    logger.debug(f'[GoogleCalendar] Resolving token at: {token_path}')
+    logger.debug('[GoogleCalendar] Resolving token at: %s', token_path)
+    print(f'Using token path: {token_path}')
+    print(f'Token exists: {token_path.exists()}')
 
     if not token_path.exists():
-        error_msg = (
-            f'token.json not found at {token_path}. '
-            'Run: cd backend/healhive_backend && python auth.py '
-            'after creating credentials.json.'
-        )
+        error_msg = 'Google authentication required. Run auth.py'
         logger.error('[GoogleCalendar] %s', error_msg)
-        raise FileNotFoundError(error_msg)
+        raise GoogleCalendarError(error_msg)
 
     try:
         logger.debug(f'[GoogleCalendar] Loading credentials from {token_path}')
@@ -116,7 +115,7 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
     
     try:
         credentials = get_google_credentials()
-    except FileNotFoundError as exc:
+    except GoogleCalendarError as exc:
         logger.error(f'[GoogleCalendar] {exc}')
         raise
 
