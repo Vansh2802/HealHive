@@ -307,7 +307,7 @@ export default function TherapistDashboard() {
                         ) : (
                             <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
                                 <Video className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                                <p className="text-sm text-slate-600">No booked sessions with Google Meet</p>
+                                <p className="text-sm text-slate-600">No booked sessions yet</p>
                                 <p className="text-xs text-slate-400">Bookings will appear here automatically</p>
                             </div>
                         )}

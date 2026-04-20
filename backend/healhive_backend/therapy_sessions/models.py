@@ -35,7 +35,7 @@ class TherapySession(models.Model):
     session_time = models.DateTimeField()
     session_status = models.CharField(max_length=20, choices=SESSION_STATUS_CHOICES, default=STATUS_CONFIRMED)
     room_id = models.CharField(max_length=64, unique=True, blank=True)
-    meeting_link = models.URLField(blank=False, null=False)
+    meeting_link = models.URLField(blank=True, null=True)
     google_event_id = models.CharField(max_length=255, blank=True, null=True)
     session_start_time = models.DateTimeField(null=True, blank=True)
     session_end_time = models.DateTimeField(null=True, blank=True)
@@ -78,7 +78,7 @@ class TherapySession(models.Model):
 class Session(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='google_calendar_sessions')
     therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='google_calendar_sessions')
-    meeting_link = models.URLField()
+    meeting_link = models.URLField(null=True, blank=True)
     google_event_id = models.CharField(max_length=255, blank=True, null=True)
     scheduled_time = models.DateTimeField()
 

@@ -1,7 +1,6 @@
 """One-time Google OAuth bootstrap for HealHive Calendar integration.
 
-Paste your Google OAuth values in CLIENT_ID and CLIENT_SECRET below.
-Run `python auth.py` once to generate token.json for future API calls.
+Run python auth.py once to generate token.json for future API calls.
 
 Security notes:
 - credentials.json and token.json are local secret files and must not be committed.
@@ -10,9 +9,11 @@ Security notes:
 
 from __future__ import annotations
 
+import os
 import json
 from pathlib import Path
 
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -20,12 +21,34 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent.parent
 CREDENTIALS_FILE = BASE_DIR / 'credentials.json'
 TOKEN_FILE = BASE_DIR / 'token.json'
 
-# Paste your client_id and client_secret here.
-CLIENT_ID = ''
-CLIENT_SECRET = ''
+load_dotenv(ROOT_DIR / '.env')
+load_dotenv(BASE_DIR / '.env')
+
+
+def _build_client_config() -> dict:
+    client_id = os.getenv('GOOGLE_CLIENT_ID', '').strip()
+    client_secret = os.getenv('GOOGLE_CLIENT_SECRET', '').strip()
+    project_id = os.getenv('GOOGLE_PROJECT_ID', 'healhive').strip() or 'healhive'
+
+    if not client_id or not client_secret:
+        raise ValueError(
+            'Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in .env.'
+        )
+
+    return {
+        'installed': {
+            'client_id': client_id,
+            'project_id': project_id,
+            'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
+            'token_uri': 'https://oauth2.googleapis.com/token',
+            'client_secret': client_secret,
+            'redirect_uris': ['http://localhost'],
+        }
+    }
 
 
 def ensure_credentials_file() -> None:
@@ -33,22 +56,7 @@ def ensure_credentials_file() -> None:
     if CREDENTIALS_FILE.exists():
         return
 
-    if not CLIENT_ID.strip() or not CLIENT_SECRET.strip():
-        raise ValueError(
-            'Missing CLIENT_ID or CLIENT_SECRET in auth.py. '
-            'Paste your values and run python auth.py once.'
-        )
-
-    credentials_payload = {
-        'installed': {
-            'client_id': CLIENT_ID.strip(),
-            'project_id': 'healhive',
-            'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
-            'token_uri': 'https://oauth2.googleapis.com/token',
-            'client_secret': CLIENT_SECRET.strip(),
-            'redirect_uris': ['http://localhost'],
-        }
-    }
+    credentials_payload = _build_client_config()
     CREDENTIALS_FILE.write_text(json.dumps(credentials_payload, indent=2), encoding='utf-8')
 
 

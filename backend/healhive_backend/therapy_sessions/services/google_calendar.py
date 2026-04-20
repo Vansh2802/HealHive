@@ -57,6 +57,8 @@ def get_google_credentials() -> Credentials:
     credentials_path = _resolve_credentials_path()
     token_path = _resolve_token_path()
     logger.debug(f'[GoogleCalendar] Resolving token at: {token_path}')
+    print(f'Using token path: {token_path}')
+    print(f'Token exists: {token_path.exists()}')
 
     if not credentials_path.exists():
         raise FileNotFoundError('credentials.json not found. Please add your Google OAuth credentials.')
@@ -127,6 +129,7 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
         GoogleCalendarError: If Calendar API fails
     """
     logger.info(f'[GoogleCalendar] Creating Meet for {user_email} with {therapist_email}')
+    print('Generating Google Meet link...')
     
     try:
         credentials = get_google_credentials()
@@ -154,7 +157,7 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
             ],
             'conferenceData': {
                 'createRequest': {
-                    'requestId': uuid.uuid4().hex,
+                    'requestId': f'healhive-session-{uuid.uuid4().hex}',
                     'conferenceSolutionKey': {'type': 'hangoutsMeet'},
                 }
             },
@@ -185,6 +188,7 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
             raise GoogleCalendarError(error_msg)
 
         event_id = created_event.get('id')
+        print('Generated Meet link:', meet_link)
         logger.info(f'[GoogleCalendar] Successfully created Meet link with event ID {event_id}')
         return meet_link, event_id
     except OSError as exc:
@@ -192,8 +196,10 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
         raise GoogleCalendarError(f'Google Calendar token error: {exc}') from exc
     except HttpError as exc:
         error_msg = f'Google Calendar API error (HTTP {exc.resp.status}): {exc.content.decode()}'
+        print('Meet API ERROR:', str(exc))
         logger.error(f'[GoogleCalendar] {error_msg}')
         raise GoogleCalendarError(f'Google Calendar API error: Check API quota and permissions') from exc
     except Exception as exc:
+        print('Meet API ERROR:', str(exc))
         logger.exception(f'[GoogleCalendar] Unexpected error creating Meet')
         raise GoogleCalendarError(f'Unexpected error: {exc}') from exc
