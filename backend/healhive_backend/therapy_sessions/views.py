@@ -14,7 +14,7 @@ from ai_chatbot.services.crew_agents import CrewAIEmailAgents
 from .email_utils import send_session_email
 from .models import Availability, Session, TherapySession
 from .serializers import AvailabilitySerializer, BookSessionSerializer, TherapySessionSerializer
-from .services.google_calendar import GoogleCalendarError, create_google_meet
+from .services.meeting_links import generate_meeting_link
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class SessionListView(APIView):
 
 
 class TherapistUpcomingSessionsView(APIView):
-    """Get upcoming booked sessions for a therapist with Google Meet link."""
+    """Get upcoming booked sessions for a therapist with meeting links."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -140,7 +140,7 @@ class BookSessionView(APIView):
     def post(self, request):
         user_email = request.user.email
         logger.info(f'[BookSessionView] Booking request from {user_email}')
-        logger.info('[BookSessionView] Incoming request payload: %s', request.data)
+        print('[BookSessionView] Incoming request data:', request.data)
         
         if request.user.role != User.ROLE_USER:
             logger.warning(f'[BookSessionView] Non-user role attempted booking: {request.user.role}')
@@ -177,30 +177,15 @@ class BookSessionView(APIView):
             logger.warning('[BookSessionView] Therapist not found therapist_id=%s', therapist_id)
             return Response({'success': False, 'error': 'Therapist not found.'}, status=404)
 
-        meeting_link = None
+        logger.info('[BookSessionView] Generating Jitsi meeting link user=%s therapist=%s', request.user.email, therapist.user.email)
+        meeting_link = generate_meeting_link()
         event_id = None
-        try:
-            logger.info('[BookSessionView] Creating Google Meet user=%s therapist=%s start=%s end=%s', request.user.email, therapist.user.email, start_time, end_time)
-            meeting_link, event_id = create_google_meet(
-                start_time=start_time,
-                end_time=end_time,
-                user_email=request.user.email,
-                therapist_email=therapist.user.email,
-            )
-            if not meeting_link:
-                logger.error('[BookSessionView] Google Meet creation returned empty link')
-                meeting_link = None
-                event_id = None
-        except Exception as exc:
-            logger.exception('[BookSessionView] Meet generation failed: %s', exc)
-            meeting_link = None
-            event_id = None
 
         try:
-            # Create the session ONLY after Meet succeeds.
             serializer.context['meeting_link'] = meeting_link
             serializer.context['google_event_id'] = event_id
             session = serializer.save()
+            print('Saved meeting link:', session.meeting_link)
         except ValidationError as exc:
             logger.warning('[BookSessionView] Booking conflict availability_id=%s therapist_id=%s: %s', availability_id, therapist_id, exc.detail)
             return Response({'success': False, 'error': exc.detail}, status=409)
@@ -214,7 +199,7 @@ class BookSessionView(APIView):
             logger.warning(f'[BookSessionView] Email sending failed: {exc}')
         
         logger.info(f'[BookSessionView] Booking completed successfully for {user_email}')
-        message = 'Session booked successfully' if session.meeting_link else 'Session booked but meeting link unavailable'
+        message = 'Session booked successfully'
         return Response({'success': True, 'message': message, 'session': TherapySessionSerializer(session).data}, status=201)
 
 
@@ -223,7 +208,7 @@ class CreateSessionView(APIView):
 
     def post(self, request):
         payload = request.data
-        logger.info('[CreateSessionView] Incoming request payload: %s', payload)
+        print('[CreateSessionView] Incoming request data:', payload)
 
         try:
             user_id = int(payload.get('user') or payload.get('user_id'))
@@ -248,23 +233,9 @@ class CreateSessionView(APIView):
         if not user.email or not therapist.user.email:
             return Response({'success': False, 'error': 'Both user and therapist must have email addresses.'}, status=400)
 
-        meeting_link = None
+        logger.info('[CreateSessionView] Generating Jitsi meeting link user=%s therapist=%s', user.email, therapist.user.email)
+        meeting_link = generate_meeting_link()
         event_id = None
-        try:
-            meeting_link, event_id = create_google_meet(
-                start_time=start_time,
-                end_time=end_time,
-                user_email=user.email,
-                therapist_email=therapist.user.email,
-            )
-            if not meeting_link:
-                logger.error('[CreateSessionView] Google Meet creation returned empty link')
-                meeting_link = None
-                event_id = None
-        except Exception as exc:
-            logger.exception('[CreateSessionView] Meet generation failed: %s', exc)
-            meeting_link = None
-            event_id = None
 
         session = Session.objects.create(
             user=user,
@@ -275,11 +246,12 @@ class CreateSessionView(APIView):
             # wait, `Session` is an old model for this? Let's check.
             scheduled_time=start_time,
         )
+        print('Saved meeting link:', session.meeting_link)
 
         return Response(
             {
                 'success': True,
-                'message': 'Session booked successfully' if session.meeting_link else 'Session booked but meeting link unavailable',
+                'message': 'Session booked successfully',
                 'session_id': session.id,
                 'meeting_link': session.meeting_link,
                 'scheduled_time': session.scheduled_time,

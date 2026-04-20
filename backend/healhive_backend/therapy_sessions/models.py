@@ -78,7 +78,7 @@ class TherapySession(models.Model):
 class Session(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='google_calendar_sessions')
     therapist = models.ForeignKey(TherapistProfile, on_delete=models.CASCADE, related_name='google_calendar_sessions')
-    meeting_link = models.URLField(blank=True, null=True)
+    meeting_link = models.URLField(null=True, blank=True)
     google_event_id = models.CharField(max_length=255, blank=True, null=True)
     scheduled_time = models.DateTimeField()
 

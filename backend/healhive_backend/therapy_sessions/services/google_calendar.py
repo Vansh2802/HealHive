@@ -1,19 +1,20 @@
 """Google Calendar integration for HealHive therapy sessions.
 
-Run backend/healhive_backend/auth.py once after setting GOOGLE_CLIENT_ID and
-GOOGLE_CLIENT_SECRET in .env. That generates token.json, which is reused
-automatically so users do not re-authenticate on every booking.
-
-Never commit token.json to GitHub.
+Place credentials.json beside manage.py in backend/healhive_backend/ or set
+GOOGLE_CREDENTIALS_FILE to an alternate path. token.json is generated after the
+first OAuth run and reused automatically so users do not re-authenticate on
+every booking. Never commit either file to GitHub.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.utils import timezone
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -26,34 +27,50 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 TIMEZONE_NAME = 'Asia/Kolkata'
-BASE_DIR = Path(__file__).resolve().parents[2]
-TOKEN_FILE = BASE_DIR / 'token.json'
 
 
 class GoogleCalendarError(RuntimeError):
     """Raised when the Google Calendar API cannot complete the request."""
 
 
+def _resolve_credentials_path() -> Path:
+    override_path = os.getenv('GOOGLE_CREDENTIALS_FILE', '').strip()
+    if override_path:
+        return Path(override_path)
+    return Path(settings.BASE_DIR) / 'credentials.json'
+
+
 def _resolve_token_path() -> Path:
-    return TOKEN_FILE
+    override_path = os.getenv('GOOGLE_TOKEN_FILE', '').strip()
+    if override_path:
+        return Path(override_path)
+    return Path(settings.BASE_DIR) / 'token.json'
 
 
 def get_google_credentials() -> Credentials:
     """Load and refresh the stored token for Google Calendar access.
 
     token.json must already exist. Run backend/healhive_backend/auth.py once to
-    create it after setting GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.
+    create it after adding credentials.json.
     """
 
+    credentials_path = _resolve_credentials_path()
     token_path = _resolve_token_path()
-    logger.debug('[GoogleCalendar] Resolving token at: %s', token_path)
+    logger.debug(f'[GoogleCalendar] Resolving token at: {token_path}')
     print(f'Using token path: {token_path}')
     print(f'Token exists: {token_path.exists()}')
 
+    if not credentials_path.exists():
+        raise FileNotFoundError('credentials.json not found. Please add your Google OAuth credentials.')
+
     if not token_path.exists():
-        error_msg = 'Google authentication required. Run auth.py'
+        error_msg = (
+            f'token.json not found at {token_path}. '
+            'Run: cd backend/healhive_backend && python auth.py '
+            'after creating credentials.json.'
+        )
         logger.error('[GoogleCalendar] %s', error_msg)
-        raise GoogleCalendarError(error_msg)
+        raise FileNotFoundError(error_msg)
 
     try:
         logger.debug(f'[GoogleCalendar] Loading credentials from {token_path}')
@@ -112,10 +129,11 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
         GoogleCalendarError: If Calendar API fails
     """
     logger.info(f'[GoogleCalendar] Creating Meet for {user_email} with {therapist_email}')
+    print('Generating Google Meet link...')
     
     try:
         credentials = get_google_credentials()
-    except GoogleCalendarError as exc:
+    except FileNotFoundError as exc:
         logger.error(f'[GoogleCalendar] {exc}')
         raise
 
@@ -139,7 +157,7 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
             ],
             'conferenceData': {
                 'createRequest': {
-                    'requestId': uuid.uuid4().hex,
+                    'requestId': f'healhive-session-{uuid.uuid4().hex}',
                     'conferenceSolutionKey': {'type': 'hangoutsMeet'},
                 }
             },
@@ -170,6 +188,7 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
             raise GoogleCalendarError(error_msg)
 
         event_id = created_event.get('id')
+        print('Generated Meet link:', meet_link)
         logger.info(f'[GoogleCalendar] Successfully created Meet link with event ID {event_id}')
         return meet_link, event_id
     except OSError as exc:
@@ -177,8 +196,10 @@ def create_google_meet(start_time, end_time, user_email, therapist_email):
         raise GoogleCalendarError(f'Google Calendar token error: {exc}') from exc
     except HttpError as exc:
         error_msg = f'Google Calendar API error (HTTP {exc.resp.status}): {exc.content.decode()}'
+        print('Meet API ERROR:', str(exc))
         logger.error(f'[GoogleCalendar] {error_msg}')
         raise GoogleCalendarError(f'Google Calendar API error: Check API quota and permissions') from exc
     except Exception as exc:
+        print('Meet API ERROR:', str(exc))
         logger.exception(f'[GoogleCalendar] Unexpected error creating Meet')
         raise GoogleCalendarError(f'Unexpected error: {exc}') from exc

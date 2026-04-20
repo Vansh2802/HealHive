@@ -1,6 +1,16 @@
+"""One-time Google OAuth bootstrap for HealHive Calendar integration.
+
+Run python auth.py once to generate token.json for future API calls.
+
+Security notes:
+- credentials.json and token.json are local secret files and must not be committed.
+- client_id and client_secret must never be hardcoded in app business logic.
+"""
+
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,12 +18,13 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent.parent
+CREDENTIALS_FILE = BASE_DIR / 'credentials.json'
 TOKEN_FILE = BASE_DIR / 'token.json'
 
-# Load env
 load_dotenv(ROOT_DIR / '.env')
 load_dotenv(BASE_DIR / '.env')
 
@@ -40,39 +51,36 @@ def _build_client_config() -> dict:
     }
 
 
+def ensure_credentials_file() -> None:
+    """Create credentials.json automatically when it does not exist."""
+    if CREDENTIALS_FILE.exists():
+        return
+
+    credentials_payload = _build_client_config()
+    CREDENTIALS_FILE.write_text(json.dumps(credentials_payload, indent=2), encoding='utf-8')
+
+
 def main() -> None:
-    client_config = _build_client_config()
+    # credentials.json is stored next to manage.py (backend/healhive_backend).
+    ensure_credentials_file()
+
+    if not CREDENTIALS_FILE.exists():
+        raise FileNotFoundError('credentials.json not found. Please add your Google OAuth credentials.')
+
     credentials = None
-
-    print(f'Looking for token at: {TOKEN_FILE}')
-    print(f'Token exists: {TOKEN_FILE.exists()}')
-    print(f'Current working directory: {Path.cwd()}')
-    if Path.cwd() != BASE_DIR:
-        print(f'Note: Recommended run location is: {BASE_DIR}')
-
-    # STEP 1: Load existing token
     if TOKEN_FILE.exists():
         credentials = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
-        print('Reusing existing token.json')
+        if credentials and credentials.expired and credentials.refresh_token:
+            credentials.refresh(Request())
+            TOKEN_FILE.write_text(credentials.to_json(), encoding='utf-8')
+            print('Token generated successfully')
+            return
 
-    # STEP 2: Refresh if expired
-    if credentials and credentials.expired and credentials.refresh_token:
-        credentials.refresh(Request())
-        TOKEN_FILE.write_text(credentials.to_json(), encoding='utf-8')
-        print('✅ Token refreshed successfully')
-        return
-
-    if credentials and credentials.valid:
-        print('✅ Existing token is valid. No new OAuth flow needed.')
-        return
-
-    # STEP 3: If no valid token → run OAuth
-    if not credentials or not credentials.valid:
-        flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-        credentials = flow.run_local_server(port=0)
-
-        TOKEN_FILE.write_text(credentials.to_json(), encoding='utf-8')
-        print(f'✅ Token generated successfully at: {TOKEN_FILE}')
+    flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+    credentials = flow.run_local_server(port=0)
+    TOKEN_FILE.write_text(credentials.to_json(), encoding='utf-8')
+    print(f'✅ Token generated successfully at: {TOKEN_FILE}')
+    print('📝 Backend will automatically use this token for Google Calendar API calls')
 
 
 if __name__ == '__main__':
