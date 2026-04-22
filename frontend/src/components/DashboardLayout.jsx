@@ -15,84 +15,114 @@ export default function DashboardLayout({ children, navItems = [], title = 'Dash
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 flex">
-            {/* Sidebar */}
-            <aside className={`fixed left-0 top-0 h-screen bg-white border-r border-slate-100 z-40 transition-all duration-300 flex flex-col ${collapsed ? 'w-[68px]' : 'w-60'}`}>
+        <div className="min-h-screen flex" style={{ background: 'var(--color-surface-container-low)' }}>
+
+            {/* ── Sidebar ── */}
+            <aside className={`fixed left-0 top-0 h-screen z-40 flex flex-col transition-all duration-300 sidebar ${collapsed ? 'w-[68px]' : 'w-60'}`}>
+
                 {/* Logo */}
-                <div className={`flex items-center h-16 px-4 border-b border-slate-100 ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sage-500 to-sage-400 flex items-center justify-center flex-shrink-0">
-                        <Leaf className="w-5 h-5 text-white" />
+                <div className={`flex items-center h-16 px-4 ${collapsed ? 'justify-center' : 'gap-2.5'}`}
+                     style={{ borderBottom: '1px solid rgba(191,201,193,0.20)' }}>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                         style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-container))' }}>
+                        <Leaf style={{ width: '16px', height: '16px', color: '#ffffff' }} />
                     </div>
                     {!collapsed && (
-                        <span className="text-lg font-bold tracking-tight">
-                            <span className="text-slate-800">Heal</span>
-                            <span className="text-sage-500">Hive</span>
+                        <span className="text-lg font-bold tracking-tight" style={{ color: 'var(--color-on-surface)' }}>
+                            Heal<span className="gradient-text-sage">Hive</span>
                         </span>
                     )}
                 </div>
 
                 {/* Nav Items */}
-                <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+                <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
                     {navItems.map(item => (
                         <NavLink
                             key={item.path}
                             to={item.path}
                             end={item.end}
                             className={({ isActive }) =>
-                                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                                    isActive
-                                        ? 'bg-sage-50 text-sage-700'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                                } ${collapsed ? 'justify-center' : ''}`
+                                `nav-item ${isActive ? 'active' : ''} ${collapsed ? 'justify-center' : ''}`
                             }
                         >
-                            <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
+                            <item.icon style={{ width: '17px', height: '17px', flexShrink: 0 }} />
                             {!collapsed && <span>{item.label}</span>}
                         </NavLink>
                     ))}
                 </nav>
 
                 {/* Bottom */}
-                <div className="p-3 border-t border-slate-100 space-y-2">
-                    {/* User info */}
+                <div className="p-3 space-y-2" style={{ borderTop: '1px solid rgba(191,201,193,0.20)' }}>
                     {!collapsed && user && (
-                        <div className="px-3 py-2">
-                            <p className="text-sm font-medium text-slate-700 truncate">{user.name}</p>
-                            <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                        <div className="px-3 py-2 rounded-xl" style={{ background: 'var(--color-surface-container-low)' }}>
+                            <p className="text-sm font-medium truncate" style={{ color: 'var(--color-on-surface)' }}>
+                                {user.name}
+                            </p>
+                            <p className="text-xs truncate" style={{ color: 'var(--color-outline)' }}>
+                                {user.email}
+                            </p>
                         </div>
                     )}
-                    <button onClick={handleLogout}
-                        className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all ${collapsed ? 'justify-center' : ''}`}>
-                        <LogOut className="w-[18px] h-[18px]" />
+                    <button
+                        onClick={handleLogout}
+                        className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${collapsed ? 'justify-center' : ''}`}
+                        style={{ color: 'var(--color-outline)' }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.background = 'rgba(186,26,26,0.07)'
+                            e.currentTarget.style.color = '#991b1b'
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = 'var(--color-outline)'
+                        }}
+                    >
+                        <LogOut style={{ width: '16px', height: '16px' }} />
                         {!collapsed && <span>Logout</span>}
                     </button>
                 </div>
 
-                {/* Collapse toggle */}
+                {/* Collapse Toggle */}
                 <button
                     onClick={() => setCollapsed(!collapsed)}
-                    className="absolute -right-3 top-20 w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 shadow-sm transition-all"
+                    className="absolute -right-3 top-20 w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-all duration-200"
+                    style={{
+                        background: 'var(--color-surface-container-lowest)',
+                        border: '1px solid rgba(191,201,193,0.30)',
+                        color: 'var(--color-outline)',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--color-primary)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--color-outline)'}
                 >
-                    {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+                    {collapsed
+                        ? <ChevronRight style={{ width: '11px', height: '11px' }} />
+                        : <ChevronLeft  style={{ width: '11px', height: '11px' }} />}
                 </button>
             </aside>
 
-            {/* Main content */}
-            <main className={`flex-1 transition-all duration-300 ${collapsed ? 'ml-[68px]' : 'ml-60'}`}>
-                {/* Top bar */}
-                <header className="h-16 bg-white/80 backdrop-blur-sm border-b border-slate-100 flex items-center px-6 sticky top-0 z-30">
-                    <h1 className="text-lg font-semibold text-slate-800">{title}</h1>
+            {/* ── Main Content ── */}
+            <main className={`flex-1 transition-all duration-300 ${collapsed ? 'ml-[68px]' : 'ml-60'} min-w-0`}>
+                {/* Top Bar */}
+                <header className="h-16 sticky top-0 z-30 flex items-center px-6"
+                        style={{
+                            background: 'rgba(255,255,255,0.85)',
+                            backdropFilter: 'blur(16px)',
+                            borderBottom: '1px solid rgba(191,201,193,0.20)',
+                            boxShadow: '0 1px 16px rgba(11,31,23,0.04)',
+                        }}>
+                    <h1 className="text-lg font-semibold" style={{ color: 'var(--color-on-surface)', fontFamily: "'Newsreader', Georgia, serif" }}>
+                        {title}
+                    </h1>
                 </header>
 
-                {/* Page content */}
+                {/* Page Content */}
                 <div className="p-6">
                     <AnimatePresence mode="wait">
                         <motion.div
                             key={title}
-                            initial={{ opacity: 0, y: 8 }}
+                            initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0 }}
-                            transition={{ duration: 0.2 }}
+                            transition={{ duration: 0.22 }}
                         >
                             {children}
                         </motion.div>

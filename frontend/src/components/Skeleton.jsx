@@ -1,7 +1,7 @@
 // ─── Skeleton Loader Component ───
 
 export default function Skeleton({ height = 'h-6', width = 'w-full', className = '', variant = 'rect', count = 1 }) {
-    const baseClass = 'animate-pulse bg-slate-100 rounded-xl'
+    const baseClass = 'skeleton rounded-xl'
     const variantClasses = {
         rect: '',
         circle: '!rounded-full',
