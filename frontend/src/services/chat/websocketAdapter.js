@@ -25,8 +25,9 @@ export class ChatWebSocketAdapter {
         this.callbacks = new Map()
         this.pendingMessages = []
         this.reconnectAttempts = 0
-        this.maxReconnectAttempts = 5
-        this.baseReconnectDelayMs = 600
+        this.maxReconnectAttempts = 50
+        this.baseReconnectDelayMs = 500
+        this.maxReconnectDelayMs = 8000
         this.explicitClose = false
         this.reconnectTimer = null
     }
@@ -128,8 +129,7 @@ export class ChatWebSocketAdapter {
         }
 
         this.socket.onerror = (event) => {
-            logWsError('onerror', event)
-            this._notify('error', { message: 'WebSocket error' })
+            logWs('onerror', event)
         }
 
         this.socket.onclose = (event) => {
@@ -149,8 +149,13 @@ export class ChatWebSocketAdapter {
         }
 
         this.reconnectAttempts += 1
-        const delay = this.baseReconnectDelayMs * this.reconnectAttempts
+        const jitter = Math.floor(Math.random() * 250)
+        const delay = Math.min(
+            this.maxReconnectDelayMs,
+            this.baseReconnectDelayMs * (2 ** (this.reconnectAttempts - 1)) + jitter,
+        )
         logWs('scheduling reconnect', { attempt: this.reconnectAttempts, delay_ms: delay })
+        this._notify('reconnecting', { attempt: this.reconnectAttempts, delay })
         this.reconnectTimer = window.setTimeout(() => {
             this._openSocket()
         }, delay)

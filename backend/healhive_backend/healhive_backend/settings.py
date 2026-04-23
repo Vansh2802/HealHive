@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import socket
 from datetime import timedelta
 from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv
@@ -154,15 +155,27 @@ CORS_ALLOW_CREDENTIALS = True
 
 CHANNEL_LAYER_BACKEND = os.getenv(
     'CHANNEL_LAYER_BACKEND',
-    'inmemory' if DEBUG else 'redis',
+    'redis',
 ).strip().lower()
 
-if CHANNEL_LAYER_BACKEND == 'redis':
+
+def _can_connect_redis(redis_url: str) -> bool:
+    try:
+        parsed = urlparse(redis_url)
+        host = parsed.hostname or '127.0.0.1'
+        port = int(parsed.port or 6379)
+        with socket.create_connection((host, port), timeout=0.8):
+            return True
+    except Exception:
+        return False
+
+redis_url = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')
+if CHANNEL_LAYER_BACKEND == 'redis' and _can_connect_redis(redis_url):
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
             'CONFIG': {
-                'hosts': [os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')],
+                'hosts': [redis_url],
                 'capacity': int(os.getenv('CHANNEL_LAYER_CAPACITY', '1500')),
                 'expiry': int(os.getenv('CHANNEL_LAYER_EXPIRY', '60')),
                 'group_expiry': int(os.getenv('CHANNEL_GROUP_EXPIRY', '86400')),

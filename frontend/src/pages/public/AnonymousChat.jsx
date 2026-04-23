@@ -1,48 +1,92 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Loader2, RefreshCw } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import ChatBubble from '../../components/ChatBubble'
 import DisclaimerBanner from '../../components/DisclaimerBanner'
 import { createChatSocketAdapter } from '../../services/chat/websocketAdapter'
 
 const WELCOME_MSG = {
     id: 'welcome',
-    text: "Hello, welcome to HealHive. I'm here to listen and support you — this is a safe, anonymous space. How are you feeling today?",
+    text: "Hi, I am here with you. Let's take this one step at a time.",
     isBot: true,
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
 }
 
-function createMessageId() {
+function createSessionId() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID()
+        return `session-${crypto.randomUUID()}`
     }
-    return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function normalizeServerMessages(serverMessages = []) {
+    return serverMessages.map((msg, index) => ({
+        id: msg.id || `${msg.role || 'msg'}-${index}-${Date.now()}`,
+        text: msg.text || msg.content || '',
+        isBot: (msg.role || msg.sender_type) !== 'user',
+        options: Array.isArray(msg.options) ? msg.options : [],
+        timestamp: new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }))
 }
 
 export default function AnonymousChat() {
+    const navigate = useNavigate()
     const [messages, setMessages] = useState([WELCOME_MSG])
-    const [input, setInput] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
+    const [connectionState, setConnectionState] = useState('connecting')
+    const [activeOptions, setActiveOptions] = useState([])
+    const [completed, setCompleted] = useState(false)
+    const [anonId, setAnonId] = useState('')
+
     const messagesEndRef = useRef(null)
-    const inputRef = useRef(null)
-    const sessionId = useRef(`session-${Date.now()}`)
+    const sessionId = useRef(localStorage.getItem('healhive_anonymous_session_id') || createSessionId())
     const socketRef = useRef(null)
 
     useEffect(() => {
+        localStorage.setItem('healhive_anonymous_session_id', sessionId.current)
         const adapter = createChatSocketAdapter()
         socketRef.current = adapter.connect(sessionId.current)
+
+        const unsubOpen = adapter.on('open', () => {
+            setConnectionState('connected')
+            setError(null)
+        })
+
+        const unsubReconnecting = adapter.on('reconnecting', () => {
+            setConnectionState('reconnecting')
+        })
+
+        const unsubClose = adapter.on('close', () => {
+            setConnectionState('disconnected')
+        })
+
+        const unsubSessionState = adapter.on('session_state', (payload) => {
+            setAnonId(payload?.anonymous_user_id || '')
+            const normalized = normalizeServerMessages(payload?.messages || [])
+            if (normalized.length > 0) {
+                setMessages(normalized)
+            }
+            if (Array.isArray(payload?.options)) {
+                setActiveOptions(payload.options)
+            }
+            setCompleted(Boolean(payload?.completed))
+        })
 
         const unsubReceive = adapter.on('receive_message', (payload) => {
             const incoming = {
                 id: payload.id || `${payload.sender_type}-${Date.now()}`,
                 text: payload.content || '',
                 isBot: payload.sender_type !== 'user',
+                options: Array.isArray(payload.options) ? payload.options : [],
                 timestamp: new Date(payload.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             }
 
             setMessages((prev) => [...prev, incoming])
             if (payload.sender_type !== 'user') {
                 setLoading(false)
+                setActiveOptions(incoming.options || [])
+                setCompleted(Boolean(payload.completed))
             }
         })
 
@@ -56,7 +100,7 @@ export default function AnonymousChat() {
                 ...prev,
                 {
                     id: `escalation-${Date.now()}`,
-                    text: payload.reason || 'A therapist has been requested to join this session.',
+                    text: payload.reason || 'A therapist has been requested to review your check-in.',
                     isBot: true,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 },
@@ -64,6 +108,10 @@ export default function AnonymousChat() {
         })
 
         return () => {
+            unsubOpen()
+            unsubReconnecting()
+            unsubClose()
+            unsubSessionState()
             unsubReceive()
             unsubError()
             unsubEscalation()
@@ -74,51 +122,54 @@ export default function AnonymousChat() {
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages])
+    }, [messages, activeOptions, completed])
 
-    const handleSend = async () => {
-        const text = input.trim()
-        if (!text || loading) return
-
+    const handleOptionClick = (option) => {
+        if (!option || loading || completed) return
         setError(null)
-        const userMsg = {
-            id: `u-${Date.now()}`,
-            text,
-            isBot: false,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }
-        setMessages(prev => [...prev, userMsg])
-        setInput('')
         setLoading(true)
+        setActiveOptions([])
 
-        socketRef.current?.emit('send_message', {
+        socketRef.current?.emit('select_option', {
             session_id: sessionId.current,
-            message_id: createMessageId(),
-            sender_type: 'user',
-            content: text,
-            mode: 'ai',
+            option,
         })
-
-        inputRef.current?.focus()
     }
 
-    const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSend()
+    const renderConnectionBadge = () => {
+        if (connectionState === 'connected') {
+            return (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
+                    <Wifi className="w-3 h-3" /> Connected
+                </span>
+            )
         }
+        if (connectionState === 'reconnecting') {
+            return (
+                <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
+                    <RefreshCw className="w-3 h-3 animate-spin" /> Reconnecting
+                </span>
+            )
+        }
+        return (
+            <span className="inline-flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full">
+                <WifiOff className="w-3 h-3" /> Disconnected
+            </span>
+        )
     }
 
     return (
         <div className="pt-16 min-h-screen bg-gradient-to-b from-wood-50 to-beige-100 flex flex-col">
-            {/* Chat container */}
             <div className="flex-1 flex flex-col max-w-3xl w-full mx-auto">
-                {/* Disclaimer */}
-                <div className="px-4 pt-6 pb-2">
+                <div className="px-4 pt-6 pb-2 flex items-center justify-between gap-3">
                     <DisclaimerBanner />
+                    {renderConnectionBadge()}
                 </div>
 
-                {/* Messages area */}
+                <div className="px-4 pb-1 text-xs text-wood-500">
+                    Anonymous ID: <span className="font-semibold">{anonId || 'Generating...'}</span>
+                </div>
+
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                     {messages.map(msg => (
                         <ChatBubble
@@ -147,38 +198,47 @@ export default function AnonymousChat() {
                     {error && (
                         <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
                             <span>{error}</span>
-                            <button onClick={handleSend} className="ml-auto flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700">
-                                <RefreshCw className="w-3 h-3" /> Retry
-                            </button>
                         </div>
                     )}
 
                     <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input area */}
                 <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-gradient-to-t from-beige-100 to-transparent">
-                    <div className="flex items-end gap-2 bg-white rounded-2xl border border-wood-200 shadow-lg p-1.5 focus-within:border-wood-400 focus-within:ring-2 focus-within:ring-wood-100 transition-all">
-                        <textarea
-                            ref={inputRef}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Type your message..."
-                            rows={1}
-                            className="flex-1 resize-none px-3 py-2.5 text-sm text-wood-800 placeholder-wood-400 outline-none bg-transparent max-h-32"
-                            style={{ minHeight: '40px' }}
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={!input.trim() || loading}
-                            className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-r from-wood-600 to-wood-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-wood-300/40 transition-all duration-200"
-                        >
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                        </button>
+                    <div className="bg-white rounded-2xl border border-wood-200 shadow-lg p-3">
+                        <p className="text-xs text-wood-500 mb-3">Choose one option to continue</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {activeOptions.map((option) => (
+                                <button
+                                    key={option}
+                                    onClick={() => handleOptionClick(option)}
+                                    disabled={loading || completed || connectionState === 'disconnected'}
+                                    className="text-left px-3 py-2 rounded-xl border border-wood-200 text-sm text-wood-700 hover:bg-wood-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                >
+                                    {option}
+                                </button>
+                            ))}
+                        </div>
+                        {activeOptions.length === 0 && !loading && (
+                            <p className="text-xs text-wood-400">Waiting for next prompt...</p>
+                        )}
+
+                        {completed && (
+                            <div className="mt-3 pt-3 border-t border-wood-100">
+                                <button
+                                    onClick={() => navigate('/signup')}
+                                    className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-wood-600 to-wood-500 text-white text-sm font-medium hover:shadow-lg transition-all"
+                                >
+                                    Connect with a Therapist
+                                </button>
+                                <p className="text-[11px] text-wood-400 mt-2 text-center">
+                                    Optional support whenever you feel ready.
+                                </p>
+                            </div>
+                        )}
                     </div>
                     <p className="text-[10px] text-wood-400 text-center mt-2">
-                        Your conversation is anonymous and not stored permanently.
+                        Your chat uses an anonymous session ID and therapist reports hide personal identity.
                     </p>
                 </div>
             </div>

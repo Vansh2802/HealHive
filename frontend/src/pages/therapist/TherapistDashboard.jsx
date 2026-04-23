@@ -68,11 +68,11 @@ export default function TherapistDashboard() {
     useEffect(() => {
         const token = getToken()
         if (!token) return
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/reports`, {
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/realtime-chat/therapist/reports`, {
             headers: { Authorization: `Bearer ${token}` },
         })
             .then(r => r.json())
-            .then(d => { if (d.success) setReports(d.reports) })
+            .then(d => { if (d.success) setReports(d.reports || []) })
             .catch(() => {})
             .finally(() => setReportsLoading(false))
     }, [])
@@ -408,12 +408,14 @@ export default function TherapistDashboard() {
                         <div className="space-y-3">
                             {reports.map(r => {
                                 const isExpanded = expandedReport === r.id
-                                const severity = r.severity
+                                const severity = r.severity_level || r?.report?.severity_level
                                 const sevColors = {
-                                    Minimal: 'bg-emerald-50 text-emerald-700',
-                                    Mild: 'bg-amber-50 text-amber-700',
-                                    Moderate: 'bg-orange-50 text-orange-700',
-                                    Severe: 'bg-red-50 text-red-700',
+                                    LOW: 'bg-emerald-50 text-emerald-700',
+                                    MEDIUM: 'bg-amber-50 text-amber-700',
+                                    HIGH: 'bg-orange-50 text-orange-700',
+                                    SEVERE: 'bg-red-50 text-red-700',
+                                    CRITICAL: 'bg-red-100 text-red-800',
+                                    EMERGENCY: 'bg-red-200 text-red-900',
                                 }
                                 return (
                                     <motion.div key={r.id} variants={fadeUp}
@@ -422,18 +424,16 @@ export default function TherapistDashboard() {
                                             className="w-full flex items-center gap-3 p-4 text-left hover:bg-slate-50/50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    {(r.tool_used || r.toolUsed) && (
-                                                        <span className="text-xs font-semibold text-lavender-700 bg-lavender-50 px-2 py-0.5 rounded">
-                                                            {r.tool_used || r.toolUsed}
-                                                        </span>
-                                                    )}
+                                                    <span className="text-xs font-semibold text-lavender-700 bg-lavender-50 px-2 py-0.5 rounded">
+                                                        {r.anonymous_user_id || 'ANON-UNKNOWN'}
+                                                    </span>
                                                     {severity && (
                                                         <span className={`text-xs font-medium px-2 py-0.5 rounded ${sevColors[severity] || 'bg-slate-50 text-slate-700'}`}>
                                                             {severity}
                                                         </span>
                                                     )}
-                                                    {r.score != null && <span className="text-xs text-slate-500">Score: {r.score}</span>}
-                                                    {severity === 'Severe' && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                                                    {r.severity_score != null && <span className="text-xs text-slate-500">Score: {r.severity_score}</span>}
+                                                    {(severity === 'SEVERE' || severity === 'CRITICAL' || severity === 'EMERGENCY') && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
                                                 </div>
                                                 <p className="text-xs text-slate-500 mt-1">
                                                     {new Date(r.created_at || r.createdAt).toLocaleString()}
@@ -445,7 +445,7 @@ export default function TherapistDashboard() {
                                             <div className="px-4 pb-4 border-t border-slate-100">
                                                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-4 mb-2">Clinical Report</p>
                                                 <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans bg-slate-50 rounded-xl p-4 leading-relaxed">
-                                                    {r.therapist_report || r.therapistReport}
+                                                    {JSON.stringify(r.report || {}, null, 2)}
                                                 </pre>
                                             </div>
                                         )}

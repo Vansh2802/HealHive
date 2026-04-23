@@ -33,5 +33,6 @@ urlpatterns = [
     path('api/therapists/my/availability/<int:availability_id>/', AvailabilityDeleteView.as_view(), name='therapist-my-availability-delete-slash'),
     path('session/<str:room_id>', video_room_view, name='session-room'),
     path('video-call/', include('video_calls.urls')),
+    path('api/realtime-chat/', include('realtime_chat.urls')),
     path('', include('ai_chatbot.urls')),
 ]
