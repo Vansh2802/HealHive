@@ -2,36 +2,27 @@ import json
 import logging
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
+from uuid import uuid4
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .models import ChatSession
-from .services.ai_handler import generate_ai_response
 from .services.mongo_connection import get_messages_collection
+from .services.screening_engine import ScreeningEngine
 
 logger = logging.getLogger(__name__)
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
-    """
-    Event-compatible websocket consumer for chat migration from Socket.io.
-
-    Incoming payload shape:
-      {"event": "send_message", "data": {...}}
-
-    Compatibility:
-    - Also accepts legacy shape where data is at root level.
-    - Emits exact event names in the "event" field.
-    """
-
     async def connect(self):
-        self.session_id = self._extract_session_id()
+        self.session_id = self._extract_session_id() or f'session-{uuid4()}'
         self.client_token = self._extract_token()
         self.session_group = None
         self.session_role = 'user'
         self.escalation_requested = False
         self.therapist_connected = False
+        self.engine = ScreeningEngine()
 
         if not self._is_valid_session_id(self.session_id):
             logger.warning('WebSocket rejected: invalid session_id=%s', self.session_id)
@@ -48,6 +39,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.accept()
         await self.channel_layer.group_add(self.session_group, self.channel_name)
         logger.info('WebSocket connected session_id=%s channel=%s', self.session_id, self.channel_name)
+
+        initial_state = await self._bootstrap_screening(self.chat_session.session_id)
+        await self._send_event('session_state', initial_state)
 
     async def disconnect(self, close_code):
         if self.session_group:
@@ -84,6 +78,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self._handle_send_message(payload)
             return
 
+        if event_name == 'submit_input':
+            await self._handle_submit_input(payload)
+            return
+
+        if event_name == 'select_option':
+            await self._handle_select_option(payload)
+            return
+
         if event_name == 'typing':
             await self._handle_typing(payload)
             return
@@ -108,15 +110,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         ack_data = {
             'session_id': self.session_id,
+            'anonymous_user_id': self.chat_session.anonymous_user_id,
             'connected': True,
             'role': role,
             'token_provided': bool(self.client_token),
         }
         await self._send_event('connect_session', ack_data)
 
+        session_state = await self._build_session_state(self.session_id)
+        await self._send_event('session_state', session_state)
+
+        next_question_payload = self._build_next_question_payload(session_state)
+        if next_question_payload:
+            await self._send_event('next_question', next_question_payload)
+
     async def _handle_send_message(self, payload):
-        message_session_id = str(payload.get('session_id') or self.session_id)
-        if message_session_id != self.session_id:
+        payload_session_id = str(payload.get('session_id') or self.session_id)
+        if payload_session_id != self.session_id:
             await self._send_error('session_id mismatch')
             return
 
@@ -125,36 +135,90 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self._send_error('content is required')
             return
 
-        sender_type = str(payload.get('sender_type') or 'user').lower()
-        if sender_type not in {'user', 'ai', 'therapist'}:
-            await self._send_error('Invalid sender_type')
+        await self._handle_screening_input(payload_session_id, input_type='text', input_value=content)
+
+    async def _handle_submit_input(self, payload):
+        payload_session_id = str(payload.get('session_id') or self.session_id)
+        if payload_session_id != self.session_id:
+            await self._send_error('session_id mismatch')
             return
 
-        stored = await self._store_message(
-            session_id=message_session_id,
-            sender_type=sender_type,
-            content=content,
-        )
-        await self._broadcast_receive_message(stored)
+        provided = payload.get('input') if isinstance(payload.get('input'), dict) else payload
+        input_type = str(provided.get('type') or '').strip().lower()
+        input_value = str(provided.get('value') or '').strip()
 
-        should_call_ai = self._should_generate_ai_reply(payload=payload, sender_type=sender_type)
-        if should_call_ai:
-            ai_data = await generate_ai_response(self.session_id, content)
-            ai_stored = await self._store_message(
-                session_id=self.session_id,
-                sender_type='ai',
-                content=str(ai_data.get('content') or '').strip(),
+        if input_type not in {'option', 'text'}:
+            await self._send_error('input.type must be option or text')
+            return
+        if not input_value:
+            await self._send_error('input.value is required')
+            return
+
+        await self._handle_screening_input(payload_session_id, input_type=input_type, input_value=input_value)
+
+    async def _handle_select_option(self, payload):
+        payload_session_id = str(payload.get('session_id') or self.session_id)
+        if payload_session_id != self.session_id:
+            await self._send_error('session_id mismatch')
+            return
+
+        selected_option = str(payload.get('option') or payload.get('content') or '').strip()
+        if not selected_option:
+            await self._send_error('option is required')
+            return
+
+        await self._handle_screening_input(payload_session_id, input_type='option', input_value=selected_option)
+
+    async def _handle_screening_input(self, payload_session_id: str, input_type: str, input_value: str):
+        selected_value = str(input_value or '').strip()
+        if not selected_value:
+            await self._send_error('input value is required')
+            return
+
+        try:
+            result = await self._process_screening_input(payload_session_id, input_type, selected_value)
+        except ValueError as exc:
+            await self._send_error(str(exc))
+            return
+        except Exception as exc:
+            logger.exception('Failed processing input session_id=%s type=%s error=%s', payload_session_id, input_type, exc)
+            await self._send_error('Unable to process your response right now. Please try again.')
+            return
+
+        user_echo = {
+            'id': f'user-{datetime.now(timezone.utc).timestamp()}',
+            'session_id': self.session_id,
+            'sender_type': 'user',
+            'input_type': input_type,
+            'content': selected_value,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }
+        await self._broadcast_receive_message(user_echo)
+        await self._store_message(self.session_id, 'user', selected_value)
+
+        bot = result.get('bot_message') or {}
+        bot_payload = {
+            'id': f'ai-{datetime.now(timezone.utc).timestamp()}',
+            'session_id': self.session_id,
+            'sender_type': 'ai',
+            'content': bot.get('question') or '',
+            'options': bot.get('options') or [],
+            'stage': result.get('current_stage'),
+            'anonymous_user_id': result.get('anonymous_user_id'),
+            'completed': bool(result.get('completed')),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }
+        await self._broadcast_receive_message(bot_payload)
+        await self._store_message(self.session_id, 'ai', bot_payload['content'])
+
+        if result.get('severity_level') in {'SEVERE', 'CRITICAL', 'EMERGENCY'}:
+            await self._handle_escalation(
+                {
+                    'session_id': self.session_id,
+                    'severity': result.get('severity_level', 'SEVERE'),
+                    'reason': 'High-risk mental health indicators detected.',
+                }
             )
-            await self._broadcast_receive_message(ai_stored)
-
-            if ai_data.get('should_escalate'):
-                await self._handle_escalation(
-                    {
-                        'session_id': self.session_id,
-                        'severity': ai_data.get('severity', 'high'),
-                        'reason': ai_data.get('reason', 'AI escalation recommended'),
-                    }
-                )
 
     async def _handle_typing(self, payload):
         payload_session_id = str(payload.get('session_id') or self.session_id)
@@ -211,6 +275,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def _send_error(self, message):
         await self.send(text_data=json.dumps({'event': 'error', 'data': {'message': message}}, default=str))
 
+    @staticmethod
+    def _build_next_question_payload(session_state: dict):
+        question = str(session_state.get('next_question') or '').strip()
+        options = session_state.get('options') or []
+        if not question:
+            return None
+        return {
+            'session_id': session_state.get('session_id'),
+            'anonymous_user_id': session_state.get('anonymous_user_id'),
+            'question': question,
+            'options': options,
+            'current_stage': session_state.get('current_stage'),
+            'completed': bool(session_state.get('completed')),
+        }
+
     def _parse_event(self, content):
         event_name = content.get('event')
         payload = content.get('data')
@@ -249,19 +328,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def _group_name(session_id):
         return f'chat_session_{session_id}'
 
-    def _should_generate_ai_reply(self, payload, sender_type):
-        if sender_type != 'user':
-            return False
-        if self.escalation_requested:
-            return False
-
-        mode = str(payload.get('mode') or '').lower()
-        if mode in {'therapist', 'human', 'handoff'}:
-            return False
-
-        therapist_connected = bool(payload.get('therapist_connected')) or self.therapist_connected
-        return not therapist_connected
-
     async def _store_message(self, session_id, sender_type, content):
         timestamp = datetime.now(timezone.utc)
         document = {
@@ -272,12 +338,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }
 
         collection = get_messages_collection()
-        result = await collection.insert_one(document)
+        await collection.insert_one(document)
         await self._touch_session_timestamp(session_id, timestamp)
-        logger.debug('Stored chat message session_id=%s sender_type=%s id=%s', session_id, sender_type, result.inserted_id)
 
         return {
-            'id': str(result.inserted_id),
             'session_id': session_id,
             'sender_type': sender_type,
             'content': content,
@@ -289,8 +353,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from therapy_sessions.models import TherapySession
 
         try:
-            # We assume session_id is either a UUID room_id or an integer PK
-            # We will try looking up by id first, then room_id.
             if session_id.isdigit():
                 therapy_session = TherapySession.objects.select_related(
                     'patient__user',
@@ -313,6 +375,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             chat_session, _ = ChatSession.objects.get_or_create(
                 session_id=session_id,
                 defaults={
+                    'anonymous_user_id': f'ANON-{uuid4().hex[:8].upper()}',
                     'current_mode': ChatSession.MODE_AI,
                     'severity': ChatSession.SEVERITY_LOW,
                     'user': getattr(therapy_session.patient, 'user', None),
@@ -322,10 +385,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return chat_session
 
         except TherapySession.DoesNotExist:
-            logger.info('No TherapySession found for session_id=%s; creating anonymous ChatSession metadata', session_id)
             chat_session, _ = ChatSession.objects.get_or_create(
                 session_id=session_id,
                 defaults={
+                    'anonymous_user_id': f'ANON-{uuid4().hex[:8].upper()}',
                     'current_mode': ChatSession.MODE_AI,
                     'severity': ChatSession.SEVERITY_LOW,
                 },
@@ -339,3 +402,48 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def _mark_session_mode(self, session_id, mode):
         ChatSession.objects.filter(session_id=session_id).update(current_mode=mode)
+
+    @database_sync_to_async
+    def _bootstrap_screening(self, session_id):
+        session = self.engine.create_or_get_session(session_id=session_id)
+        data = self.engine.bootstrap_session(session)
+        bot = data.get('bot_message') or {}
+        return {
+            'session_id': session.session_id,
+            'anonymous_user_id': session.anonymous_user_id,
+            'messages': session.messages,
+            'current_stage': session.current_stage,
+            'completed': session.completed,
+            'next_question': bot.get('question'),
+            'options': bot.get('options') or [],
+        }
+
+    @database_sync_to_async
+    def _build_session_state(self, session_id):
+        session = self.engine.create_or_get_session(session_id=session_id)
+        last_bot = self.engine._last_bot_turn(session.messages)
+        return {
+            'session_id': session.session_id,
+            'anonymous_user_id': session.anonymous_user_id,
+            'messages': session.messages,
+            'current_stage': session.current_stage,
+            'completed': session.completed,
+            'next_question': last_bot.get('question') or None,
+            'options': last_bot.get('options') or [],
+        }
+
+    @database_sync_to_async
+    def _process_screening_input(self, session_id, input_type, input_value):
+        session = self.engine.create_or_get_session(session_id=session_id)
+        result = self.engine.process_input(session, input_type=input_type, input_value=input_value)
+        updated = result['session']
+        return {
+            'session_id': updated.session_id,
+            'anonymous_user_id': updated.anonymous_user_id,
+            'current_stage': updated.current_stage,
+            'severity_score': updated.severity_score,
+            'severity_level': updated.severity_level,
+            'completed': updated.completed,
+            'bot_message': result.get('bot_message') or {},
+            'report': result.get('report'),
+        }

@@ -12,6 +12,9 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'healhive-dev-secret-change-me')
 DEBUG = os.getenv('DJANGO_DEBUG', '1') == '1'
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
+for frontend_host in ['localhost', '127.0.0.1']:
+    if frontend_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(frontend_host)
 
 INSTALLED_APPS = [
     'channels',
@@ -145,7 +148,14 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
+CORS_ALLOWED_ORIGINS = os.getenv(
+    'CORS_ALLOWED_ORIGINS',
+    'http://localhost:5176,http://127.0.0.1:5176',
+).split(',')
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    'CSRF_TRUSTED_ORIGINS',
+    'http://localhost:5176,http://127.0.0.1:5176',
+).split(',')
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^https?://localhost:\d+$',
     r'^https?://127\.0\.0\.1:\d+$',
