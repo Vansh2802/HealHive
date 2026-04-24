@@ -65,6 +65,11 @@ function AppLayout() {
                                 <BookSession />
                             </ProtectedRoute>
                         } />
+                        <Route path="/book-session" element={
+                            <ProtectedRoute allowedRoles={['user']}>
+                                <BookSession />
+                            </ProtectedRoute>
+                        } />
                         <Route path="/user/session" element={
                             <ProtectedRoute allowedRoles={['user']}>
                                 <VideoSession />

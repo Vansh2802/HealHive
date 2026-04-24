@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../components/Toast'
 import DashboardLayout from '../../components/DashboardLayout'
 import Skeleton from '../../components/Skeleton'
+import TherapistReport from '../../components/TherapistReport'
 import { fetchAvailability, createAvailability, deleteAvailability } from '../../services/api/availability'
 import { getToken } from '../../services/api/auth'
 import { fetchMySessions } from '../../services/api/sessions'
@@ -444,9 +445,7 @@ export default function TherapistDashboard() {
                                         {isExpanded && (
                                             <div className="px-4 pb-4 border-t border-slate-100">
                                                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-4 mb-2">Clinical Report</p>
-                                                <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans bg-slate-50 rounded-xl p-4 leading-relaxed">
-                                                    {JSON.stringify(r.report || {}, null, 2)}
-                                                </pre>
+                                                <TherapistReport reportData={r} viewer="therapist" />
                                             </div>
                                         )}
                                     </motion.div>

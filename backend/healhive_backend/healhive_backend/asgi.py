@@ -13,8 +13,12 @@ from video_calls.middleware import JWTAuthMiddleware
 from healhive_backend.routing import websocket_urlpatterns
 
 ALLOWED_WEBSOCKET_ORIGINS = [
-    'http://localhost:5176',
-    'http://127.0.0.1:5176',
+    origin.strip()
+    for origin in os.getenv(
+        'ALLOWED_WEBSOCKET_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5176,http://127.0.0.1:5176',
+    ).split(',')
+    if origin.strip()
 ]
 
 application = ProtocolTypeRouter(

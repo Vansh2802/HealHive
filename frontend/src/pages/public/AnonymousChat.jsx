@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, Send, Wifi, WifiOff } from 'lucide-react'
 import ChatBubble from '../../components/ChatBubble'
 import DisclaimerBanner from '../../components/DisclaimerBanner'
 import { createChatSocketAdapter } from '../../services/chat/websocketAdapter'
+import { useAuth } from '../../context/AuthContext'
 
 const WELCOME_MSG = {
     id: 'welcome',
@@ -52,6 +53,7 @@ function appendQuestionMessage(prev, payload) {
 
 export default function AnonymousChat() {
     const navigate = useNavigate()
+    const { isAuthenticated } = useAuth()
     const [messages, setMessages] = useState([WELCOME_MSG])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
@@ -202,6 +204,26 @@ export default function AnonymousChat() {
         })
     }
 
+    const handleConnectWithTherapist = () => {
+        const navigationState = {
+            from: '/chat',
+            anonymousSessionId: sessionId.current,
+            therapistId: null,
+        }
+
+        if (isAuthenticated) {
+            navigate('/book-session', { state: navigationState })
+            return
+        }
+
+        navigate('/login', {
+            state: {
+                ...navigationState,
+                redirectTo: '/book-session',
+            },
+        })
+    }
+
     const renderConnectionBadge = () => {
         if (connectionState === 'connected') {
             return (
@@ -320,7 +342,7 @@ export default function AnonymousChat() {
                         {completed && (
                             <div className="mt-3 pt-3 border-t border-wood-100">
                                 <button
-                                    onClick={() => navigate('/signup')}
+                                    onClick={handleConnectWithTherapist}
                                     className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-wood-600 to-wood-500 text-white text-sm font-medium hover:shadow-lg transition-all"
                                 >
                                     Connect with a Therapist
