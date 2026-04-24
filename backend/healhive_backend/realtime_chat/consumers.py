@@ -78,6 +78,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self._handle_send_message(payload)
             return
 
+        if event_name == 'submit_input':
+            await self._handle_submit_input(payload)
+            return
+
         if event_name == 'select_option':
             await self._handle_select_option(payload)
             return
@@ -116,8 +120,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         session_state = await self._build_session_state(self.session_id)
         await self._send_event('session_state', session_state)
 
+        next_question_payload = self._build_next_question_payload(session_state)
+        if next_question_payload:
+            await self._send_event('next_question', next_question_payload)
+
     async def _handle_send_message(self, payload):
-        # Legacy compatibility: convert free-text into option event.
         payload_session_id = str(payload.get('session_id') or self.session_id)
         if payload_session_id != self.session_id:
             await self._send_error('session_id mismatch')
@@ -128,12 +135,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self._send_error('content is required')
             return
 
-        await self._handle_select_option(
-            {
-                'session_id': payload_session_id,
-                'option': content,
-            }
-        )
+        await self._handle_screening_input(payload_session_id, input_type='text', input_value=content)
+
+    async def _handle_submit_input(self, payload):
+        payload_session_id = str(payload.get('session_id') or self.session_id)
+        if payload_session_id != self.session_id:
+            await self._send_error('session_id mismatch')
+            return
+
+        provided = payload.get('input') if isinstance(payload.get('input'), dict) else payload
+        input_type = str(provided.get('type') or '').strip().lower()
+        input_value = str(provided.get('value') or '').strip()
+
+        if input_type not in {'option', 'text'}:
+            await self._send_error('input.type must be option or text')
+            return
+        if not input_value:
+            await self._send_error('input.value is required')
+            return
+
+        await self._handle_screening_input(payload_session_id, input_type=input_type, input_value=input_value)
 
     async def _handle_select_option(self, payload):
         payload_session_id = str(payload.get('session_id') or self.session_id)
@@ -146,13 +167,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self._send_error('option is required')
             return
 
+        await self._handle_screening_input(payload_session_id, input_type='option', input_value=selected_option)
+
+    async def _handle_screening_input(self, payload_session_id: str, input_type: str, input_value: str):
+        selected_value = str(input_value or '').strip()
+        if not selected_value:
+            await self._send_error('input value is required')
+            return
+
         try:
-            result = await self._process_screening_option(payload_session_id, selected_option)
+            result = await self._process_screening_input(payload_session_id, input_type, selected_value)
         except ValueError as exc:
             await self._send_error(str(exc))
             return
         except Exception as exc:
-            logger.exception('Failed processing option session_id=%s error=%s', payload_session_id, exc)
+            logger.exception('Failed processing input session_id=%s type=%s error=%s', payload_session_id, input_type, exc)
             await self._send_error('Unable to process your response right now. Please try again.')
             return
 
@@ -160,11 +189,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'id': f'user-{datetime.now(timezone.utc).timestamp()}',
             'session_id': self.session_id,
             'sender_type': 'user',
-            'content': selected_option,
+            'input_type': input_type,
+            'content': selected_value,
             'timestamp': datetime.now(timezone.utc).isoformat(),
         }
         await self._broadcast_receive_message(user_echo)
-        await self._store_message(self.session_id, 'user', selected_option)
+        await self._store_message(self.session_id, 'user', selected_value)
 
         bot = result.get('bot_message') or {}
         bot_payload = {
@@ -244,6 +274,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def _send_error(self, message):
         await self.send(text_data=json.dumps({'event': 'error', 'data': {'message': message}}, default=str))
+
+    @staticmethod
+    def _build_next_question_payload(session_state: dict):
+        question = str(session_state.get('next_question') or '').strip()
+        options = session_state.get('options') or []
+        if not question:
+            return None
+        return {
+            'session_id': session_state.get('session_id'),
+            'anonymous_user_id': session_state.get('anonymous_user_id'),
+            'question': question,
+            'options': options,
+            'current_stage': session_state.get('current_stage'),
+            'completed': bool(session_state.get('completed')),
+        }
 
     def _parse_event(self, content):
         event_name = content.get('event')
@@ -388,9 +433,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }
 
     @database_sync_to_async
-    def _process_screening_option(self, session_id, selected_option):
+    def _process_screening_input(self, session_id, input_type, input_value):
         session = self.engine.create_or_get_session(session_id=session_id)
-        result = self.engine.process_option(session, selected_option)
+        result = self.engine.process_input(session, input_type=input_type, input_value=input_value)
         updated = result['session']
         return {
             'session_id': updated.session_id,

@@ -33,52 +33,52 @@ _STAGE_TARGETS = {
 _FALLBACK_QUESTIONS = {
     ChatSession.STAGE_EMOTIONAL_CHECK: [
         {
-            'question': "Thank you for being here today. Which feeling has been strongest lately?",
-            'options': ["Mostly okay", "Stressed", "Anxious", "Very low"],
+            'question': 'Thank you for being here today. Which feeling has been strongest lately?',
+            'options': ['Mostly okay', 'Stressed', 'Anxious', 'Very low'],
         },
         {
-            'question': "When these feelings come up, how intense do they feel for you?",
-            'options': ["Mild and manageable", "Noticeable but manageable", "Hard to control", "Overwhelming"],
+            'question': 'When these feelings come up, how intense do they feel for you?',
+            'options': ['Mild and manageable', 'Noticeable but manageable', 'Hard to control', 'Overwhelming'],
         },
     ],
     ChatSession.STAGE_LIFESTYLE_SLEEP: [
         {
-            'question': "How has your sleep been this week?",
-            'options': ["Restful", "Light sleep", "Frequent wake-ups", "Very poor sleep"],
+            'question': 'How has your sleep been this week?',
+            'options': ['Restful', 'Light sleep', 'Frequent wake-ups', 'Very poor sleep'],
         },
         {
-            'question': "How is your day-to-day energy right now?",
-            'options': ["Steady", "Slightly low", "Often drained", "Completely exhausted"],
+            'question': 'How is your day-to-day energy right now?',
+            'options': ['Steady', 'Slightly low', 'Often drained', 'Completely exhausted'],
         },
     ],
     ChatSession.STAGE_SOCIAL_WORK: [
         {
-            'question': "How supported do you feel by people around you?",
-            'options': ["Well supported", "Some support", "Mostly alone", "Isolated"],
+            'question': 'How supported do you feel by people around you?',
+            'options': ['Well supported', 'Some support', 'Mostly alone', 'Isolated'],
         },
         {
-            'question': "How has work or study pressure felt recently?",
-            'options': ["Balanced", "A bit heavy", "Very stressful", "Unmanageable"],
+            'question': 'How has work or study pressure felt recently?',
+            'options': ['Balanced', 'A bit heavy', 'Very stressful', 'Unmanageable'],
         },
     ],
     ChatSession.STAGE_DEEP_MENTAL_STATE: [
         {
-            'question': "How often have thoughts felt heavy or hopeless?",
-            'options': ["Rarely", "Sometimes", "Often", "Almost always"],
+            'question': 'How often have thoughts felt heavy or hopeless?',
+            'options': ['Rarely', 'Sometimes', 'Often', 'Almost always'],
         },
         {
-            'question': "How hard is it to enjoy things you usually like?",
-            'options': ["Not hard", "Somewhat hard", "Very hard", "I cannot enjoy anything"],
+            'question': 'How hard is it to enjoy things you usually like?',
+            'options': ['Not hard', 'Somewhat hard', 'Very hard', 'I cannot enjoy anything'],
         },
     ],
     ChatSession.STAGE_RISK_ASSESSMENT: [
         {
-            'question': "When stress peaks, what is most true for you?",
-            'options': ["I cope and recover", "I shut down for a while", "I feel unsafe emotionally", "I have thoughts of harming myself"],
+            'question': 'When stress peaks, what is most true for you?',
+            'options': ['I cope and recover', 'I shut down for a while', 'I feel unsafe emotionally', 'I have thoughts of harming myself'],
         },
         {
-            'question': "How safe do you feel right now in this moment?",
-            'options': ["Safe", "A little unsafe", "Very unsafe", "I need urgent help"],
+            'question': 'How safe do you feel right now in this moment?',
+            'options': ['Safe', 'A little unsafe', 'Very unsafe', 'I need urgent help'],
         },
     ],
 }
@@ -100,6 +100,22 @@ _OPTION_WEIGHTS = {
     'self-harm': 5,
     'harming myself': 5,
     'urgent help': 6,
+}
+
+_TEXT_SEVERITY_PHRASES = {
+    'i feel tired': 1,
+    'tired': 1,
+    'stressed': 2,
+    'anxious': 2,
+    'overwhelmed': 3,
+    "can't sleep": 3,
+    'cannot sleep': 3,
+    "can't handle": 4,
+    'cannot handle': 4,
+    "can't cope": 4,
+    'hopeless': 5,
+    'self harm': 5,
+    'suicide': 6,
 }
 
 _KEY_ISSUE_KEYWORDS = {
@@ -150,8 +166,8 @@ class ScreeningEngine:
             }
 
         opening = {
-            'question': "Hi, I am really glad you reached out today. How are you feeling right now?",
-            'options': ["Mostly okay", "Stressed", "Anxious", "Very low"],
+            'question': 'Hi, I am really glad you reached out today. How are you feeling right now?',
+            'options': ['Mostly okay', 'Stressed', 'Anxious', 'Very low'],
         }
         self._append_bot_message(session, opening)
         self._save_session(session)
@@ -163,9 +179,16 @@ class ScreeningEngine:
 
     @transaction.atomic
     def process_option(self, session: ChatSession, selected_option: str) -> dict:
-        selected_option = (selected_option or '').strip()
-        if not selected_option:
-            raise ValueError('Selected option is required.')
+        return self.process_input(session, input_type='option', input_value=selected_option)
+
+    @transaction.atomic
+    def process_input(self, session: ChatSession, input_type: str, input_value: str) -> dict:
+        input_type = (input_type or '').strip().lower()
+        input_value = (input_value or '').strip()
+        if input_type not in {'option', 'text'}:
+            raise ValueError('input_type must be option or text.')
+        if not input_value:
+            raise ValueError('Input value is required.')
 
         if session.completed:
             return {
@@ -178,8 +201,15 @@ class ScreeningEngine:
                 },
             }
 
-        self._append_user_message(session, selected_option)
-        session.severity_score = min(25, session.severity_score + self._score_option(selected_option))
+        text_analysis = None
+        if input_type == 'text':
+            text_analysis = self._analyze_text_input(input_value, session.current_stage, session.severity_score)
+            score_delta = self._score_text_input(input_value, text_analysis)
+        else:
+            score_delta = self._score_option(input_value)
+
+        self._append_user_message(session, input_value, input_type=input_type, analysis=text_analysis)
+        session.severity_score = min(25, session.severity_score + score_delta)
         session.severity_level = self._classify_severity_level(session.severity_score)
         session.question_count += 1
 
@@ -209,7 +239,12 @@ class ScreeningEngine:
                 'bot_message': self._last_bot_turn(session.messages),
             }
 
-        bot_message = self._generate_next_question(session, selected_option)
+        bot_message = self._generate_next_question(
+            session,
+            latest_input=input_value,
+            input_type=input_type,
+            text_analysis=text_analysis,
+        )
         self._append_bot_message(session, bot_message)
         self._save_session(session)
 
@@ -220,16 +255,42 @@ class ScreeningEngine:
             'bot_message': bot_message,
         }
 
-    def _generate_next_question(self, session: ChatSession, selected_option: str) -> dict:
+    def _generate_next_question(
+        self,
+        session: ChatSession,
+        latest_input: str,
+        input_type: str = 'option',
+        text_analysis: dict | None = None,
+    ) -> dict:
         history = session.messages[-10:]
+        empathetic_prefix = self._compose_empathetic_prefix(input_type, latest_input, text_analysis)
+
         if self._anthropic_client:
-            ai_result = self._anthropic_question(history, session.current_stage, selected_option, session.severity_score)
+            ai_result = self._anthropic_question(
+                history,
+                session.current_stage,
+                latest_input,
+                input_type,
+                session.severity_score,
+                text_analysis or {},
+            )
             if ai_result:
+                ai_result['question'] = f'{empathetic_prefix}\n\n{ai_result["question"]}'
                 return ai_result
 
-        return self._fallback_question(session.current_stage, selected_option, session.question_count)
+        fallback = self._fallback_question(session.current_stage, latest_input, session.question_count)
+        fallback['question'] = f'{empathetic_prefix}\n\n{fallback["question"]}'
+        return fallback
 
-    def _anthropic_question(self, history: list, current_stage: str, selected_option: str, severity_score: int) -> dict | None:
+    def _anthropic_question(
+        self,
+        history: list,
+        current_stage: str,
+        latest_input: str,
+        input_type: str,
+        severity_score: int,
+        text_analysis: dict,
+    ) -> dict | None:
         if not self._anthropic_client:
             return None
 
@@ -243,8 +304,10 @@ class ScreeningEngine:
             '- Options must be clickable phrases, no free text request.\n'
             '- Keep question under 28 words.\n\n'
             f'Current stage: {current_stage}\n'
-            f'Latest user option: {selected_option}\n'
+            f'Latest user input type: {input_type}\n'
+            f'Latest user input: {latest_input}\n'
             f'Severity score: {severity_score}\n'
+            f'Text analysis: {text_analysis}\n'
             f'Previous messages: {history}\n'
         )
 
@@ -264,13 +327,10 @@ class ScreeningEngine:
             if not raw_text:
                 return None
 
-            # Minimal robust JSON parsing for models that may wrap markdown fences.
-            cleaned = raw_text
-            if cleaned.startswith('```'):
-                cleaned = cleaned.strip('`')
-                cleaned = cleaned.replace('json', '', 1).strip()
-            import json
-            parsed = json.loads(cleaned)
+            parsed = self._safe_json(raw_text)
+            if not parsed:
+                return None
+
             question = str(parsed.get('question') or '').strip()
             options = parsed.get('options') or []
             options = [str(opt).strip() for opt in options if str(opt).strip()][:4]
@@ -287,7 +347,7 @@ class ScreeningEngine:
         candidate = pool[question_count % len(pool)]
         question = candidate['question']
         if selected_option:
-            question = f"Thanks for sharing that. {question}"
+            question = f'Thanks for sharing that. {question}'
         return {
             'question': question,
             'options': list(candidate['options']),
@@ -303,6 +363,101 @@ class ScreeningEngine:
             if any(token in normalized for token in {'bad', 'hard', 'heavy'}):
                 return 1
         return score
+
+    def _score_text_input(self, text: str, analysis: dict | None = None) -> int:
+        normalized = (text or '').lower().strip()
+        score = 0
+        for phrase, points in _TEXT_SEVERITY_PHRASES.items():
+            if phrase in normalized:
+                score = max(score, points)
+
+        if score == 0:
+            if any(token in normalized for token in {'stress', 'anxious', 'worry', 'tension'}):
+                score = 2
+            elif any(token in normalized for token in {'tired', 'low energy', 'sad'}):
+                score = 1
+
+        model_delta = 0
+        if analysis:
+            try:
+                model_delta = int(analysis.get('severity_delta') or 0)
+            except Exception:
+                model_delta = 0
+
+        score = max(score, model_delta)
+        return max(0, min(6, score))
+
+    def _analyze_text_input(self, text: str, current_stage: str, severity_score: int) -> dict:
+        if self._anthropic_client:
+            try:
+                response = self._anthropic_client.messages.create(
+                    model=self.anthropic_model,
+                    max_tokens=220,
+                    temperature=0.1,
+                    system='You extract emotional signals for a guided screening flow. Return JSON only with emotional_state, intent, sentiment, severity_delta, indicators, empathetic_ack.',
+                    messages=[
+                        {
+                            'role': 'user',
+                            'content': (
+                                f'Stage: {current_stage}\n'
+                                f'Current severity score: {severity_score}\n'
+                                f'User text: {text}'
+                            ),
+                        }
+                    ],
+                )
+                raw_text = ''.join(
+                    block.text
+                    for block in response.content
+                    if getattr(block, 'type', '') == 'text' and getattr(block, 'text', '')
+                ).strip()
+                if raw_text:
+                    parsed = self._safe_json(raw_text)
+                    if parsed:
+                        parsed['severity_delta'] = max(0, min(6, int(parsed.get('severity_delta') or 0)))
+                        indicators = parsed.get('indicators') or []
+                        parsed['indicators'] = [str(item).strip() for item in indicators if str(item).strip()][:6]
+                        parsed['empathetic_ack'] = str(parsed.get('empathetic_ack') or '').strip()
+                        return parsed
+            except Exception:
+                pass
+
+        normalized = (text or '').lower()
+        indicators = []
+        if any(token in normalized for token in {'stress', 'overwhelmed', 'pressure'}):
+            indicators.append('stress')
+        if any(token in normalized for token in {'anxious', 'panic', 'worry'}):
+            indicators.append('anxiety')
+        if any(token in normalized for token in {'sleep', 'insomnia', "can't sleep", 'cannot sleep'}):
+            indicators.append('sleep issues')
+        if any(token in normalized for token in {'hopeless', 'worthless', 'empty'}):
+            indicators.append('hopelessness')
+
+        return {
+            'emotional_state': 'distressed' if indicators else 'unclear',
+            'intent': 'seeking support',
+            'sentiment': 'negative' if indicators else 'neutral',
+            'severity_delta': self._score_text_input(text, analysis=None),
+            'indicators': indicators,
+            'empathetic_ack': 'Thank you for sharing that with me.',
+        }
+
+    def _compose_empathetic_prefix(self, input_type: str, latest_input: str, text_analysis: dict | None = None) -> str:
+        if input_type == 'text':
+            ack = str((text_analysis or {}).get('empathetic_ack') or '').strip()
+            if ack:
+                return ack
+
+            normalized = (latest_input or '').lower()
+            if 'sleep' in normalized:
+                return 'That sounds exhausting, and I appreciate you sharing it.'
+            if any(token in normalized for token in {'overwhelmed', 'anxious', 'panic'}):
+                return 'That sounds really heavy, and your feelings are valid.'
+            if 'hopeless' in normalized:
+                return 'I am really glad you shared this; it takes courage to say it out loud.'
+            return 'Thank you for sharing that with me. I am here with you.'
+
+        return 'Thank you for checking in honestly. Let us take this one step at a time.'
 
     def _advance_stage(self, stage: str, question_count: int) -> str:
         if question_count >= 10:
@@ -364,7 +519,7 @@ class ScreeningEngine:
         summary = (
             'The user described persistent emotional strain during this session. '
             f'Primary concern areas include {", ".join(key_issues[:3])}. '
-            'Severity was estimated using structured options and emotional indicators.'
+            'Severity was estimated using structured options, free-text emotional indicators, and guided screening progression.'
         )
 
         return {
@@ -396,12 +551,14 @@ class ScreeningEngine:
             'You do not have to go through this alone.'
         )
 
-    def _append_user_message(self, session: ChatSession, text: str):
+    def _append_user_message(self, session: ChatSession, text: str, input_type: str = 'option', analysis: dict | None = None):
         messages = list(session.messages or [])
         messages.append(
             {
                 'role': 'user',
                 'text': text,
+                'input_type': input_type,
+                'analysis': analysis or {},
                 'stage': session.current_stage,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
             }
@@ -449,3 +606,26 @@ class ScreeningEngine:
                 'updated_at',
             ]
         )
+
+    @staticmethod
+    def _safe_json(raw_text: str) -> dict | None:
+        import json
+
+        cleaned = (raw_text or '').strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.strip('`')
+            cleaned = cleaned.replace('json', '', 1).strip()
+
+        try:
+            parsed = json.loads(cleaned)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            start = cleaned.find('{')
+            end = cleaned.rfind('}')
+            if start == -1 or end == -1 or end <= start:
+                return None
+            try:
+                parsed = json.loads(cleaned[start : end + 1])
+                return parsed if isinstance(parsed, dict) else None
+            except Exception:
+                return None

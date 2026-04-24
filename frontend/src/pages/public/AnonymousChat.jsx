@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { Loader2, RefreshCw, Send, Wifi, WifiOff } from 'lucide-react'
 import ChatBubble from '../../components/ChatBubble'
 import DisclaimerBanner from '../../components/DisclaimerBanner'
 import { createChatSocketAdapter } from '../../services/chat/websocketAdapter'
@@ -29,6 +29,27 @@ function normalizeServerMessages(serverMessages = []) {
     }))
 }
 
+function appendQuestionMessage(prev, payload) {
+    const questionText = payload?.question || payload?.next_question || ''
+    if (!questionText) return prev
+
+    const lastMessage = prev[prev.length - 1]
+    if (lastMessage?.isBot && (lastMessage.text || '').trim() === questionText.trim()) {
+        return prev
+    }
+
+    return [
+        ...prev,
+        {
+            id: payload?.id || `next-question-${Date.now()}`,
+            text: questionText,
+            isBot: true,
+            options: Array.isArray(payload?.options) ? payload.options : [],
+            timestamp: new Date(payload?.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+    ]
+}
+
 export default function AnonymousChat() {
     const navigate = useNavigate()
     const [messages, setMessages] = useState([WELCOME_MSG])
@@ -38,27 +59,39 @@ export default function AnonymousChat() {
     const [activeOptions, setActiveOptions] = useState([])
     const [completed, setCompleted] = useState(false)
     const [anonId, setAnonId] = useState('')
+    const [textInput, setTextInput] = useState('')
 
     const messagesEndRef = useRef(null)
     const sessionId = useRef(localStorage.getItem('healhive_anonymous_session_id') || createSessionId())
     const socketRef = useRef(null)
+    const sessionInitializedRef = useRef(false)
 
     useEffect(() => {
         localStorage.setItem('healhive_anonymous_session_id', sessionId.current)
         const adapter = createChatSocketAdapter()
-        socketRef.current = adapter.connect(sessionId.current)
 
         const unsubOpen = adapter.on('open', () => {
             setConnectionState('connected')
+            setLoading(false)
             setError(null)
+
+            if (!sessionInitializedRef.current) {
+                adapter.emit('connect_session', {
+                    session_id: sessionId.current,
+                    role: 'user',
+                })
+                sessionInitializedRef.current = true
+            }
         })
 
         const unsubReconnecting = adapter.on('reconnecting', () => {
             setConnectionState('reconnecting')
+            setLoading(false)
         })
 
         const unsubClose = adapter.on('close', () => {
             setConnectionState('disconnected')
+            setLoading(false)
         })
 
         const unsubSessionState = adapter.on('session_state', (payload) => {
@@ -66,11 +99,20 @@ export default function AnonymousChat() {
             const normalized = normalizeServerMessages(payload?.messages || [])
             if (normalized.length > 0) {
                 setMessages(normalized)
+            } else if (payload?.next_question) {
+                setMessages((prev) => appendQuestionMessage(prev, payload))
             }
             if (Array.isArray(payload?.options)) {
                 setActiveOptions(payload.options)
             }
             setCompleted(Boolean(payload?.completed))
+        })
+
+        const unsubNextQuestion = adapter.on('next_question', (payload) => {
+            setMessages((prev) => appendQuestionMessage(prev, payload))
+            setActiveOptions(Array.isArray(payload?.options) ? payload.options : [])
+            setCompleted(Boolean(payload?.completed))
+            setLoading(false)
         })
 
         const unsubReceive = adapter.on('receive_message', (payload) => {
@@ -107,11 +149,14 @@ export default function AnonymousChat() {
             ])
         })
 
+        socketRef.current = adapter.connect(sessionId.current)
+
         return () => {
             unsubOpen()
             unsubReconnecting()
             unsubClose()
             unsubSessionState()
+            unsubNextQuestion()
             unsubReceive()
             unsubError()
             unsubEscalation()
@@ -125,14 +170,35 @@ export default function AnonymousChat() {
     }, [messages, activeOptions, completed])
 
     const handleOptionClick = (option) => {
-        if (!option || loading || completed) return
+        if (!option || loading || completed || connectionState !== 'connected') return
         setError(null)
         setLoading(true)
         setActiveOptions([])
 
-        socketRef.current?.emit('select_option', {
+        socketRef.current?.emit('submit_input', {
             session_id: sessionId.current,
-            option,
+            input: {
+                type: 'option',
+                value: option,
+            },
+        })
+    }
+
+    const handleTextSubmit = () => {
+        const value = textInput.trim()
+        if (!value || loading || completed || connectionState !== 'connected') return
+
+        setError(null)
+        setLoading(true)
+        setTextInput('')
+        setActiveOptions([])
+
+        socketRef.current?.emit('submit_input', {
+            session_id: sessionId.current,
+            input: {
+                type: 'text',
+                value,
+            },
         })
     }
 
@@ -206,7 +272,33 @@ export default function AnonymousChat() {
 
                 <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-gradient-to-t from-beige-100 to-transparent">
                     <div className="bg-white rounded-2xl border border-wood-200 shadow-lg p-3">
-                        <p className="text-xs text-wood-500 mb-3">Choose one option to continue</p>
+                        <p className="text-xs text-wood-500 mb-2">Type how you feel or choose an option below</p>
+
+                        <div className="mb-3 flex items-center gap-2">
+                            <input
+                                type="text"
+                                value={textInput}
+                                onChange={(e) => setTextInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault()
+                                        handleTextSubmit()
+                                    }
+                                }}
+                                disabled={loading || completed || connectionState === 'disconnected'}
+                                placeholder="Share what you are feeling..."
+                                className="flex-1 px-3 py-2 rounded-xl border border-wood-200 text-sm text-wood-700 placeholder:text-wood-300 focus:outline-none focus:ring-2 focus:ring-wood-300 disabled:opacity-50"
+                            />
+                            <button
+                                onClick={handleTextSubmit}
+                                disabled={!textInput.trim() || loading || completed || connectionState === 'disconnected'}
+                                className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-wood-600 text-white text-sm hover:bg-wood-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            >
+                                <Send className="w-3.5 h-3.5" /> Send
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-wood-500 mb-3">Or choose one option to continue</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {activeOptions.map((option) => (
                                 <button
@@ -219,8 +311,10 @@ export default function AnonymousChat() {
                                 </button>
                             ))}
                         </div>
-                        {activeOptions.length === 0 && !loading && (
-                            <p className="text-xs text-wood-400">Waiting for next prompt...</p>
+                        {activeOptions.length === 0 && !loading && !completed && connectionState !== 'connected' && (
+                            <p className="text-xs text-wood-400">
+                                {connectionState === 'reconnecting' ? 'Reconnecting to chat...' : 'Connecting to chat...'}
+                            </p>
                         )}
 
                         {completed && (

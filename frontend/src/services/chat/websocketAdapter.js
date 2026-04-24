@@ -1,4 +1,6 @@
-const DEFAULT_WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/chat'
+const WS_BASE = 'ws://127.0.0.1:8000'
+const WS_CHAT_PATH = '/ws/chat'
+const DEFAULT_WS_BASE = WS_BASE
 const DEBUG_WS = (import.meta.env.VITE_WS_DEBUG || '1') === '1'
 
 function logWs(...args) {
@@ -13,7 +15,12 @@ function logWsError(...args) {
 
 function normalizeWsBase(baseUrl) {
     if (!baseUrl) return DEFAULT_WS_BASE
-    return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+    try {
+        const parsed = new URL(baseUrl)
+        return `${parsed.protocol}//${parsed.host}`
+    } catch {
+        return DEFAULT_WS_BASE
+    }
 }
 
 export class ChatWebSocketAdapter {
@@ -25,7 +32,7 @@ export class ChatWebSocketAdapter {
         this.callbacks = new Map()
         this.pendingMessages = []
         this.reconnectAttempts = 0
-        this.maxReconnectAttempts = 50
+        this.maxReconnectAttempts = 8
         this.baseReconnectDelayMs = 500
         this.maxReconnectDelayMs = 8000
         this.explicitClose = false
@@ -37,8 +44,17 @@ export class ChatWebSocketAdapter {
             throw new Error('session_id is required to connect websocket')
         }
 
+        if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+            logWs('connect() skipped: socket already active', {
+                session_id: this.sessionId,
+                readyState: this.socket.readyState,
+            })
+            return this
+        }
+
         this.sessionId = sessionId
         this.explicitClose = false
+        console.log('Connecting to:', WS_BASE)
         logWs('connect()', { session_id: sessionId, ws_base: this.wsBaseUrl })
         this._openSocket()
         return this
@@ -91,8 +107,15 @@ export class ChatWebSocketAdapter {
     }
 
     _openSocket() {
+        if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+            logWs('openSocket skipped: socket already active', {
+                readyState: this.socket.readyState,
+            })
+            return
+        }
+
         const queryToken = this.token ? `?token=${encodeURIComponent(this.token)}` : ''
-        const wsUrl = `${this.wsBaseUrl}/${encodeURIComponent(this.sessionId)}/${queryToken}`
+        const wsUrl = `${this.wsBaseUrl}${WS_CHAT_PATH}/${encodeURIComponent(this.sessionId)}/${queryToken}`
         logWs('opening socket', { wsUrl, reconnect_attempt: this.reconnectAttempts })
 
         this.socket = new WebSocket(wsUrl)
@@ -104,7 +127,6 @@ export class ChatWebSocketAdapter {
                 this.reconnectTimer = null
             }
             logWs('onopen', { session_id: this.sessionId })
-            this.emit('connect_session', { session_id: this.sessionId, role: 'user' })
             this._flushQueue()
             this._notify('open', { session_id: this.sessionId })
         }
@@ -142,6 +164,13 @@ export class ChatWebSocketAdapter {
     }
 
     _scheduleReconnect() {
+        if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+            logWs('reconnect skipped: socket already active', {
+                readyState: this.socket.readyState,
+            })
+            return
+        }
+
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             logWsError('max reconnect attempts reached', { max: this.maxReconnectAttempts })
             this._notify('error', { message: 'Unable to reconnect to chat service' })

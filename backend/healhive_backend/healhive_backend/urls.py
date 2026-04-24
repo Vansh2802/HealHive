@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
 from rest_framework.permissions import AllowAny
@@ -17,6 +18,7 @@ def health_check(_request):
 
 
 urlpatterns = [
+    path('', RedirectView.as_view(pattern_name='chatbot-home', permanent=False), name='root'),
     path('admin/', admin.site.urls),
     path('api/health', health_check, name='health-check'),
     path('api/', include('accounts.urls')),
