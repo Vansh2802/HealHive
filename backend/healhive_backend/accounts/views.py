@@ -9,6 +9,7 @@ from .models import User, TherapistProfile
 from .serializers import RegisterSerializer, LoginSerializer, AuthUserSerializer, generate_access_token
 from reports.models import AssessmentReport
 from therapy_sessions.models import TherapySession
+from therapy_sessions.serializers import TherapySessionSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -302,3 +303,26 @@ class AdminReportReviewView(APIView):
         report.status = AssessmentReport.STATUS_REVIEWED
         report.save(update_fields=['status'])
         return Response({'success': True})
+
+
+class AdminSessionsView(APIView):
+    """Return all TherapySession rows — the same source used for metrics.totalSessions.
+
+    This ensures the Sessions tab count always matches the Overview 'Total Sessions'
+    metric, because both query the same TherapySession table without extra filters.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != User.ROLE_ADMIN:
+            return Response({'success': False, 'error': 'Admin access required.'}, status=403)
+
+        sessions = TherapySession.objects.select_related(
+            'therapist__user', 'patient__user'
+        ).all().order_by('-created_at')
+
+        return Response({
+            'success': True,
+            'sessions': TherapySessionSerializer(sessions, many=True).data,
+            'total': sessions.count(),
+        })

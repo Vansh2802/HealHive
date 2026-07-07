@@ -332,20 +332,23 @@ export default function Login() {
                         ) : null}
                     </div>
 
-                    {/* Demo Credentials */}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.5 }}
-                        className="demo-box mt-5"
-                    >
-                        <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--color-on-surface-variant)' }}>
-                            Demo accounts
-                        </p>
-                        <p className="text-xs" style={{ color: 'var(--color-outline)' }}>User: user@healhive.com / user123</p>
-                        <p className="text-xs" style={{ color: 'var(--color-outline)' }}>Therapist: therapist@healhive.com / therapist123</p>
-                        <p className="text-xs" style={{ color: 'var(--color-outline)' }}>Admin: admin@healhive.com / admin123</p>
-                    </motion.div>
+
+                    {/* Demo Credentials — only visible during local development, never in production builds */}
+                    {import.meta.env.DEV && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.5 }}
+                            className="demo-box mt-5"
+                        >
+                            <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--color-on-surface-variant)' }}>
+                                Demo accounts <span style={{ color: 'var(--color-primary)' }}>(dev only)</span>
+                            </p>
+                            <p className="text-xs" style={{ color: 'var(--color-outline)' }}>User: user@healhive.com / user123</p>
+                            <p className="text-xs" style={{ color: 'var(--color-outline)' }}>Therapist: therapist@healhive.com / therapist123</p>
+                            <p className="text-xs" style={{ color: 'var(--color-outline)' }}>Admin: admin@healhive.com / admin123</p>
+                        </motion.div>
+                    )}
                 </motion.div>
             </div>
         </div>
