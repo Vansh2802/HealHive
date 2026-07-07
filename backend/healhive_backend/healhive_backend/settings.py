@@ -18,6 +18,7 @@ for frontend_host in ['localhost', '127.0.0.1']:
         ALLOWED_HOSTS.append(frontend_host)
 
 INSTALLED_APPS = [
+    'daphne',
     'channels',
     'django.contrib.admin',
     'django.contrib.auth',
