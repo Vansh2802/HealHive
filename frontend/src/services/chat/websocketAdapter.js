@@ -1,7 +1,19 @@
+/**
+ * websocketAdapter.js
+ * -------------------
+ * Task 7: Exponential-backoff reconnect (1s → 2s → 4s → 8s, max 5 tries).
+ * On successful reconnect, fetches the last N messages from MongoDB chat
+ * history via the REST endpoint and emits a 'history' event so the UI can
+ * replay context.
+ */
+
 const WS_BASE = 'ws://127.0.0.1:8000'
 const WS_CHAT_PATH = '/ws/chat'
 const DEFAULT_WS_BASE = WS_BASE
 const DEBUG_WS = (import.meta.env.VITE_WS_DEBUG || '1') === '1'
+
+// Number of messages to replay from history after a successful reconnect
+const HISTORY_REPLAY_COUNT = 10
 
 function logWs(...args) {
     if (!DEBUG_WS) return
@@ -23,18 +35,35 @@ function normalizeWsBase(baseUrl) {
     }
 }
 
+/**
+ * Build the REST API base URL from the WS base URL, or from the env var.
+ * e.g. ws://127.0.0.1:8000 → http://127.0.0.1:8000/api
+ */
+function buildApiBase(wsBase) {
+    try {
+        const parsed = new URL(wsBase.replace(/^ws/, 'http'))
+        return `${parsed.protocol}//${parsed.host}/api`
+    } catch {
+        return import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+    }
+}
+
 export class ChatWebSocketAdapter {
     constructor({ wsBaseUrl = DEFAULT_WS_BASE, token = '' } = {}) {
         this.wsBaseUrl = normalizeWsBase(wsBaseUrl)
+        this.apiBase = buildApiBase(this.wsBaseUrl)
         this.token = token
         this.sessionId = ''
         this.socket = null
         this.callbacks = new Map()
         this.pendingMessages = []
+
+        // Task 7: max 5 retries at 1s, 2s, 4s, 8s (capped)
         this.reconnectAttempts = 0
-        this.maxReconnectAttempts = 8
-        this.baseReconnectDelayMs = 500
+        this.maxReconnectAttempts = 5
+        this.baseReconnectDelayMs = 1000
         this.maxReconnectDelayMs = 8000
+
         this.explicitClose = false
         this.reconnectTimer = null
     }
@@ -121,14 +150,21 @@ export class ChatWebSocketAdapter {
         this.socket = new WebSocket(wsUrl)
 
         this.socket.onopen = () => {
+            const wasReconnect = this.reconnectAttempts > 0
             this.reconnectAttempts = 0
             if (this.reconnectTimer) {
                 window.clearTimeout(this.reconnectTimer)
                 this.reconnectTimer = null
             }
-            logWs('onopen', { session_id: this.sessionId })
+            logWs('onopen', { session_id: this.sessionId, wasReconnect })
             this._flushQueue()
             this._notify('open', { session_id: this.sessionId })
+
+            // Task 7: On reconnect, replay recent history
+            if (wasReconnect) {
+                this._notify('reconnected', { session_id: this.sessionId })
+                this._fetchAndReplayHistory(this.sessionId, HISTORY_REPLAY_COUNT)
+            }
         }
 
         this.socket.onmessage = (message) => {
@@ -172,22 +208,51 @@ export class ChatWebSocketAdapter {
         }
 
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            // Task 7: Only show hard error after ALL retries are exhausted
             logWsError('max reconnect attempts reached', { max: this.maxReconnectAttempts })
             this._notify('error', { message: 'Unable to reconnect to chat service' })
             return
         }
 
         this.reconnectAttempts += 1
-        const jitter = Math.floor(Math.random() * 250)
+        const jitter = Math.floor(Math.random() * 200)
+        // Task 7: exponential backoff 1s → 2s → 4s → 8s (capped)
         const delay = Math.min(
             this.maxReconnectDelayMs,
             this.baseReconnectDelayMs * (2 ** (this.reconnectAttempts - 1)) + jitter,
         )
         logWs('scheduling reconnect', { attempt: this.reconnectAttempts, delay_ms: delay })
-        this._notify('reconnecting', { attempt: this.reconnectAttempts, delay })
+        // Task 7: Emit 'reconnecting' so UI shows "Reconnecting..." instead of "Disconnected"
+        this._notify('reconnecting', { attempt: this.reconnectAttempts, delay, maxAttempts: this.maxReconnectAttempts })
         this.reconnectTimer = window.setTimeout(() => {
             this._openSocket()
         }, delay)
+    }
+
+    /**
+     * Task 7: Fetch the last N messages from MongoDB chat history via REST
+     * and emit a 'history' event so the chat UI can replay them.
+     */
+    async _fetchAndReplayHistory(sessionId, limit = 10) {
+        try {
+            const params = new URLSearchParams({ session_id: sessionId, limit: String(limit) })
+            const headers = {}
+            if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+
+            const res = await fetch(`${this.apiBase}/realtime-chat/history?${params}`, { headers })
+            if (!res.ok) {
+                logWsError('history fetch failed', res.status)
+                return
+            }
+            const data = await res.json()
+            const messages = Array.isArray(data.messages) ? data.messages : []
+            if (messages.length > 0) {
+                logWs('replaying history messages', { count: messages.length })
+                this._notify('history', { session_id: sessionId, messages })
+            }
+        } catch (err) {
+            logWsError('history fetch error', err)
+        }
     }
 
     _flushQueue() {

@@ -7,6 +7,11 @@ from reports.models import AssessmentReport, TherapyRequest
 from .anthropic_client import get_anthropic_api_key, get_anthropic_client
 
 try:
+    from reports.email_alerts import send_urgent_report_email_async as _send_urgent_email
+except Exception:
+    _send_urgent_email = None
+
+try:
     from langchain_anthropic import ChatAnthropic
 except Exception:
     ChatAnthropic = None
@@ -342,6 +347,11 @@ class ClaudeScreeningService:
                     'status': TherapyRequest.STATUS_PENDING,
                 },
             )
+
+        # Task 6: Send async email alert for high-severity reports.
+        # This never blocks the consumer — runs in a daemon thread.
+        if analysis['severity'] in {'SEVERE', 'CRITICAL', 'HIGH'} and _send_urgent_email is not None:
+            _send_urgent_email(report)
 
         return report
 

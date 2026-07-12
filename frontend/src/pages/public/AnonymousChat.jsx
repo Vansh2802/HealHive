@@ -86,13 +86,56 @@ export default function AnonymousChat() {
             }
         })
 
-        const unsubReconnecting = adapter.on('reconnecting', () => {
+        const unsubReconnecting = adapter.on('reconnecting', ({ attempt, maxAttempts } = {}) => {
             setConnectionState('reconnecting')
             setLoading(false)
+            // Show which attempt we're on for transparency
+            if (attempt != null && maxAttempts != null) {
+                setError(null) // clear hard error during retry window
+            }
+        })
+
+        // Task 7: On successful reconnect, clear the reconnecting state
+        const unsubReconnected = adapter.on('reconnected', () => {
+            setConnectionState('connected')
+            setError(null)
+            setMessages(prev => [
+                ...prev,
+                {
+                    id: `system-reconnected-${Date.now()}`,
+                    text: 'Connection restored. Replaying recent messages…',
+                    isBot: true,
+                    isSystemMsg: true,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+            ])
+        })
+
+        // Task 7: Replay history messages after reconnect
+        const unsubHistory = adapter.on('history', ({ messages: historyMsgs = [] }) => {
+            if (!historyMsgs.length) return
+            const normalized = historyMsgs.map((msg, i) => ({
+                id: `history-${i}-${msg.timestamp || Date.now()}`,
+                text: msg.content || '',
+                isBot: msg.sender_type !== 'user',
+                options: [],
+                timestamp: new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            }))
+            // Merge: remove the system "replaying" message, prepend history, keep rest
+            setMessages(prev => {
+                const withoutSystemMsg = prev.filter(m => !m.isSystemMsg)
+                // Deduplicate against existing messages by text+timestamp proximity
+                const existingTexts = new Set(withoutSystemMsg.map(m => m.text))
+                const fresh = normalized.filter(m => !existingTexts.has(m.text))
+                if (fresh.length === 0) return withoutSystemMsg
+                return [...fresh, ...withoutSystemMsg]
+            })
         })
 
         const unsubClose = adapter.on('close', () => {
-            setConnectionState('disconnected')
+            // Don't immediately set disconnected — let the reconnect logic run.
+            // Only set 'disconnected' if we're not already in 'reconnecting' state.
+            setConnectionState(prev => prev === 'reconnecting' ? prev : 'disconnected')
             setLoading(false)
         })
 
@@ -156,6 +199,8 @@ export default function AnonymousChat() {
         return () => {
             unsubOpen()
             unsubReconnecting()
+            unsubReconnected()
+            unsubHistory()
             unsubClose()
             unsubSessionState()
             unsubNextQuestion()

@@ -82,10 +82,15 @@ class SessionListView(APIView):
             sessions = TherapySession.objects.select_related(
                 'therapist__user', 'patient__user'
             ).filter(therapist=user.therapist_profile)
-        elif user.role == User.ROLE_USER and hasattr(user, 'patient_profile'):
+        elif user.role == User.ROLE_USER:
+            # Task 8: Use get_or_create so we never silently return zero sessions
+            # for a patient who has an existing TherapySession but no profile row
+            # (edge case: profile was deleted, or created before this fix).
+            from accounts.models import PatientProfile
+            patient_profile, _ = PatientProfile.objects.get_or_create(user=user)
             sessions = TherapySession.objects.select_related(
                 'therapist__user', 'patient__user'
-            ).filter(patient=user.patient_profile)
+            ).filter(patient=patient_profile)
         elif user.role == User.ROLE_ADMIN:
             sessions = TherapySession.objects.select_related(
                 'therapist__user', 'patient__user'
@@ -94,6 +99,7 @@ class SessionListView(APIView):
             sessions = TherapySession.objects.none()
 
         return Response({'success': True, 'sessions': TherapySessionSerializer(sessions, many=True).data})
+
 
 
 class TherapistUpcomingSessionsView(APIView):

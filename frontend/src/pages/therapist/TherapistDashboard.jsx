@@ -10,7 +10,8 @@ import { getToken } from '../../services/api/auth'
 import { fetchMySessions } from '../../services/api/sessions'
 import {
     LayoutDashboard, Calendar, Clock, CheckCircle, Plus, X, Loader2,
-    FileText, ChevronDown, ChevronUp, AlertTriangle, Video, Sparkles, Trash2
+    FileText, ChevronDown, ChevronUp, AlertTriangle, Video, Sparkles, Trash2,
+    RefreshCw, AlertCircle
 } from 'lucide-react'
 import { fetchTherapistUpcomingSessions } from '../../services/api/sessions'
 
@@ -21,6 +22,30 @@ const navItems = [
 const fadeUp = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 } }
 const stagger = { animate: { transition: { staggerChildren: 0.05 } } }
 const IST_TIMEZONE = 'Asia/Kolkata'
+
+// Task 5: Severities that are considered urgent
+const URGENT_SEVERITIES = new Set(['EMERGENCY', 'CRITICAL'])
+
+// Task 9: Unambiguous date format (e.g. "Apr 20, 2026")
+function formatSlotDate(dateStr) {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: IST_TIMEZONE,
+    })
+}
+
+// Task 9: Group slots by date
+function groupSlotsByDate(slots) {
+    const groups = {}
+    for (const slot of slots) {
+        const dateKey = formatSlotDate(slot.start_time)
+        if (!groups[dateKey]) groups[dateKey] = []
+        groups[dateKey].push(slot)
+    }
+    return Object.entries(groups)
+}
 
 export default function TherapistDashboard() {
     const { user } = useAuth()
@@ -34,9 +59,13 @@ export default function TherapistDashboard() {
     const [availability, setAvailability] = useState([])
     const [availabilityLoading, setAvailabilityLoading] = useState(false)
     const [showAddSlot, setShowAddSlot] = useState(false)
+    // Task 9: recurring slot state
+    const [showRecurring, setShowRecurring] = useState(false)
+    const [recurringWeeks, setRecurringWeeks] = useState(4)
     const [slotStart, setSlotStart] = useState('')
     const [slotEnd, setSlotEnd] = useState('')
     const [slotError, setSlotError] = useState('')
+    const [recurringLoading, setRecurringLoading] = useState(false)
     const [upcomingSessions, setUpcomingSessions] = useState([])
     const [upcomingSessionsLoading, setUpcomingSessionsLoading] = useState(true)
 
@@ -96,6 +125,42 @@ export default function TherapistDashboard() {
         setAvailabilityLoading(false)
     }
 
+    // Task 9: Add recurring weekly slots
+    const handleAddRecurring = async () => {
+        setSlotError('')
+        if (!slotStart || !slotEnd) { setSlotError('Start and end required'); return }
+        const startMs = new Date(slotStart).getTime()
+        const endMs = new Date(slotEnd).getTime()
+        if (endMs <= startMs) { setSlotError('End must be after start'); return }
+        const weeks = Math.max(1, Math.min(12, parseInt(recurringWeeks) || 4))
+        setRecurringLoading(true)
+        const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+        const results = await Promise.allSettled(
+            Array.from({ length: weeks }, (_, i) => {
+                const newStart = new Date(startMs + i * WEEK_MS).toISOString().slice(0, 16)
+                const newEnd = new Date(endMs + i * WEEK_MS).toISOString().slice(0, 16)
+                return createAvailability({ start_time: newStart, end_time: newEnd })
+            })
+        )
+        const created = results
+            .filter(r => r.status === 'fulfilled' && r.value?.success)
+            .map(r => r.value.availability)
+        const failed = results.filter(r => r.status === 'rejected' || !r.value?.success).length
+        if (created.length > 0) {
+            setAvailability(a => [...a, ...created])
+        }
+        setShowRecurring(false)
+        setShowAddSlot(false)
+        setSlotStart('')
+        setSlotEnd('')
+        if (failed === 0) {
+            toast.success(`${created.length} weekly slot${created.length !== 1 ? 's' : ''} added`)
+        } else {
+            toast.success(`${created.length} slots added, ${failed} skipped (may already exist)`)
+        }
+        setRecurringLoading(false)
+    }
+
     const handleDeleteSlot = async (id) => {
         await deleteAvailability(id)
         setAvailability(a => a.filter(s => s.id !== id))
@@ -110,10 +175,31 @@ export default function TherapistDashboard() {
     const upcoming = sessions.filter(s => s.status === 'upcoming' || s.status === 'ongoing')
     const completed = sessions.filter(s => s.status === 'completed' || s.status === 'cancelled')
 
+    // Task 5: Count urgent reports (EMERGENCY or CRITICAL)
+    const urgentCount = reports.filter(r => {
+        const sev = r.severity_level || r?.report?.severity_level
+        return URGENT_SEVERITIES.has(sev)
+    }).length
+
+    // Task 5: Sort reports — EMERGENCY first, then CRITICAL, then rest
+    const SEVERITY_ORDER = { EMERGENCY: 0, CRITICAL: 1 }
+    const sortedReports = [...reports].sort((a, b) => {
+        const sevA = a.severity_level || a?.report?.severity_level || ''
+        const sevB = b.severity_level || b?.report?.severity_level || ''
+        const orderA = SEVERITY_ORDER[sevA] ?? 99
+        const orderB = SEVERITY_ORDER[sevB] ?? 99
+        return orderA - orderB
+    })
+
     const tabs = [
         { key: 'sessions', label: 'Sessions', icon: Calendar },
         { key: 'availability', label: 'Availability', icon: Clock },
-        { key: 'reports', label: 'Reports', icon: FileText },
+        {
+            key: 'reports',
+            label: 'Reports',
+            icon: FileText,
+            badge: urgentCount > 0 ? urgentCount : null,
+        },
     ]
 
     return (
@@ -159,6 +245,15 @@ export default function TherapistDashboard() {
                         className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.key ? 'bg-white text-sage-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                         <t.icon className="w-3.5 h-3.5" />
                         {t.label}
+                        {/* Task 5: Urgent badge on Reports tab */}
+                        {t.badge != null && (
+                            <span className="relative flex items-center justify-center">
+                                <span className="absolute inline-flex h-4 w-4 rounded-full bg-red-400 opacity-75 animate-ping" />
+                                <span className="relative inline-flex items-center justify-center h-4 w-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                                    {t.badge}
+                                </span>
+                            </span>
+                        )}
                     </button>
                 ))}
             </div>
@@ -265,7 +360,6 @@ export default function TherapistDashboard() {
                                         minute: '2-digit',
                                         timeZone: IST_TIMEZONE,
                                     })
-                                    const isOngoing = s.status === 'ongoing'
                                     return (
                                         <motion.div key={s.id} variants={fadeUp}
                                             className="bg-gradient-to-br from-blue-50 to-blue-0 rounded-2xl border border-blue-200 p-5 hover:shadow-md transition-all">
@@ -319,18 +413,28 @@ export default function TherapistDashboard() {
             {/* Availability Tab */}
             {tab === 'availability' && (
                 <motion.div variants={stagger} initial="initial" animate="animate">
-                    <div className="flex items-center justify-between mb-4">
+                    {/* Task 9: Header with two buttons */}
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
                             <Clock className="w-4 h-4 text-sage-500" /> Your Slots
                         </h3>
-                        <button onClick={() => setShowAddSlot(!showAddSlot)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-sage-600 to-sage-500 hover:shadow-lg transition-all">
-                            <Plus className="w-4 h-4" /> Add Slot
-                        </button>
+                        <div className="flex gap-2">
+                            <button onClick={() => { setShowRecurring(false); setShowAddSlot(!showAddSlot); setSlotError('') }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-sage-600 to-sage-500 hover:shadow-lg transition-all">
+                                <Plus className="w-4 h-4" /> Add Slot
+                            </button>
+                            <button onClick={() => { setShowAddSlot(!showAddSlot); setShowRecurring(true); setSlotError('') }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-sage-700 bg-sage-50 border border-sage-200 hover:bg-sage-100 transition-all">
+                                <RefreshCw className="w-4 h-4" /> Repeat Weekly
+                            </button>
+                        </div>
                     </div>
 
                     {showAddSlot && (
                         <motion.div {...fadeUp} className="bg-white rounded-2xl border border-sage-200 p-5 mb-6">
+                            <p className="text-sm font-medium text-slate-700 mb-3">
+                                {showRecurring ? 'Add Recurring Weekly Slot' : 'Add Single Slot'}
+                            </p>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Start Time</label>
@@ -343,44 +447,77 @@ export default function TherapistDashboard() {
                                         className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-sage-100 focus:border-sage-400 outline-none transition-all" />
                                 </div>
                             </div>
+                            {/* Task 9: Recurring weeks selector */}
+                            {showRecurring && (
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        Repeat for how many weeks? <span className="text-sage-600 font-bold">{recurringWeeks}</span>
+                                    </label>
+                                    <input type="range" min={1} max={12} value={recurringWeeks}
+                                        onChange={e => setRecurringWeeks(e.target.value)}
+                                        className="w-full accent-sage-600" />
+                                    <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                        <span>1 week</span><span>12 weeks</span>
+                                    </div>
+                                </div>
+                            )}
                             {slotError && <p className="text-xs text-red-600 mb-3">{slotError}</p>}
                             <div className="flex gap-2">
-                                <button onClick={handleAddSlot}
-                                    className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-sage-600 hover:bg-sage-700 transition-all">Save</button>
-                                <button onClick={() => { setShowAddSlot(false); setSlotError('') }}
+                                {showRecurring ? (
+                                    <button onClick={handleAddRecurring} disabled={recurringLoading}
+                                        className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-sage-600 hover:bg-sage-700 transition-all flex items-center gap-2 disabled:opacity-60">
+                                        {recurringLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                        Save {recurringWeeks} Slots
+                                    </button>
+                                ) : (
+                                    <button onClick={handleAddSlot}
+                                        className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-sage-600 hover:bg-sage-700 transition-all">Save</button>
+                                )}
+                                <button onClick={() => { setShowAddSlot(false); setSlotError(''); setShowRecurring(false) }}
                                     className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all">Cancel</button>
                             </div>
                         </motion.div>
                     )}
 
                     {availabilityLoading ? <Skeleton height="h-16" count={3} /> : availability.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {availability.map(slot => (
-                                <motion.div key={slot.id} variants={fadeUp}
-                                    className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center justify-between hover:shadow-md transition-all">
-                                    <div className="flex items-center gap-3">
-                                        <Calendar className="w-4 h-4 text-sage-500" />
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-700">
-                                                {new Date(slot.start_time).toLocaleDateString('en-IN', { timeZone: IST_TIMEZONE })}
-                                            </p>
-                                            <p className="text-xs text-slate-500">
-                                                {new Date(slot.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIMEZONE })} – {new Date(slot.end_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIMEZONE })}
-                                            </p>
-                                        </div>
+                        /* Task 9: Group by date */
+                        <div className="space-y-6">
+                            {groupSlotsByDate(availability).map(([dateLabel, slots]) => (
+                                <div key={dateLabel}>
+                                    <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                        <Calendar className="w-3.5 h-3.5 text-sage-400" /> {dateLabel}
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {slots.map(slot => (
+                                            <motion.div key={slot.id} variants={fadeUp}
+                                                className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center justify-between hover:shadow-md transition-all">
+                                                <div className="flex items-center gap-3">
+                                                    <Clock className="w-4 h-4 text-sage-500" />
+                                                    <div>
+                                                        {/* Task 9: Time only (date is shown as header) */}
+                                                        <p className="text-sm font-medium text-slate-700">
+                                                            {new Date(slot.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIMEZONE })}
+                                                            {' '}–{' '}
+                                                            {new Date(slot.end_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIMEZONE })}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {/* Task 9: Booked = sky blue (informational), Available = emerald */}
+                                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${slot.is_booked ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                                        {slot.is_booked ? 'Booked' : 'Available'}
+                                                    </span>
+                                                    {!slot.is_booked && (
+                                                        <button onClick={() => handleDeleteSlot(slot.id)}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all">
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </motion.div>
+                                        ))}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${slot.is_booked ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                                            {slot.is_booked ? 'Booked' : 'Available'}
-                                        </span>
-                                        {!slot.is_booked && (
-                                            <button onClick={() => handleDeleteSlot(slot.id)}
-                                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all">
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                        )}
-                                    </div>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     ) : (
@@ -396,8 +533,23 @@ export default function TherapistDashboard() {
             {/* Reports Tab */}
             {tab === 'reports' && (
                 <motion.div variants={stagger} initial="initial" animate="animate">
+                    {/* Task 5: Urgent banner when urgent reports exist */}
+                    {urgentCount > 0 && !reportsLoading && (
+                        <motion.div {...fadeUp}
+                            className="mb-4 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-2xl">
+                            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 animate-pulse" />
+                            <p className="text-sm font-semibold text-red-700">
+                                {urgentCount} urgent report{urgentCount !== 1 ? 's' : ''} require{urgentCount === 1 ? 's' : ''} immediate attention
+                            </p>
+                        </motion.div>
+                    )}
                     <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
                         <FileText className="w-4 h-4 text-lavender-500" /> Assessment Reports
+                        {urgentCount > 0 && (
+                            <span className="ml-1 text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                                {urgentCount} urgent
+                            </span>
+                        )}
                     </h3>
                     {reportsLoading ? <Skeleton height="h-16" count={3} /> : reports.length === 0 ? (
                         <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
@@ -407,9 +559,10 @@ export default function TherapistDashboard() {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {reports.map(r => {
+                            {sortedReports.map(r => {
                                 const isExpanded = expandedReport === r.id
                                 const severity = r.severity_level || r?.report?.severity_level
+                                const isUrgent = URGENT_SEVERITIES.has(severity)
                                 const sevColors = {
                                     LOW: 'bg-emerald-50 text-emerald-700',
                                     MEDIUM: 'bg-amber-50 text-amber-700',
@@ -420,7 +573,24 @@ export default function TherapistDashboard() {
                                 }
                                 return (
                                     <motion.div key={r.id} variants={fadeUp}
-                                        className="bg-white rounded-2xl border border-slate-100 overflow-hidden hover:shadow-md transition-all">
+                                        className={`rounded-2xl overflow-hidden transition-all ${
+                                            isUrgent
+                                                ? 'border-2 border-red-400 shadow-md shadow-red-100 bg-white'
+                                                : 'border border-slate-100 bg-white hover:shadow-md'
+                                        }`}>
+                                        {/* Task 5: Urgent top-bar indicator */}
+                                        {isUrgent && (
+                                            <div className="flex items-center gap-2 px-4 py-2 bg-red-500">
+                                                <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                                                <span className="text-xs font-bold text-white tracking-wide">
+                                                    URGENT — {severity} RISK — Immediate Review Required
+                                                </span>
+                                                <span className="ml-auto flex h-2 w-2">
+                                                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-white opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                                </span>
+                                            </div>
+                                        )}
                                         <button onClick={() => setExpandedReport(isExpanded ? null : r.id)}
                                             className="w-full flex items-center gap-3 p-4 text-left hover:bg-slate-50/50 transition-colors">
                                             <div className="flex-1 min-w-0">
@@ -434,7 +604,7 @@ export default function TherapistDashboard() {
                                                         </span>
                                                     )}
                                                     {r.severity_score != null && <span className="text-xs text-slate-500">Score: {r.severity_score}</span>}
-                                                    {(severity === 'SEVERE' || severity === 'CRITICAL' || severity === 'EMERGENCY') && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                                                    {(severity === 'SEVERE' || isUrgent) && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
                                                 </div>
                                                 <p className="text-xs text-slate-500 mt-1">
                                                     {new Date(r.created_at || r.createdAt).toLocaleString()}
