@@ -15,9 +15,9 @@ const roles = [
 ]
 
 const trustBadges = [
-    { icon: CheckCircle, label: '500+ Therapists' },
+    { icon: CheckCircle, label: 'Growing Network' },
     { icon: Lock,        label: 'Anonymous & Private' },
-    { icon: Heart,       label: 'HIPAA Aware' },
+    { icon: Heart,       label: 'Privacy First' },
 ]
 
 export default function Login() {

@@ -166,31 +166,49 @@ export default function BookSession() {
                                 ) : (
                                     therapists.map(t => {
                                         const availableCount = t.availability.filter(s => !isSlotPast(s.startTime) && !s.isBooked).length
+                                        const initials = t.name ? t.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'TH'
                                         return (
                                             <motion.button
                                                 key={t.id}
                                                 whileHover={{ scale: 1.01 }}
                                                 whileTap={{ scale: 0.99 }}
                                                 onClick={() => { setSelectedTherapist(t); setSelectedDate(null); setSelectedSlot(null) }}
-                                                className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all duration-200 ${
-                                                    selectedTherapist?.id === t.id
-                                                        ? 'border-wood-400 bg-wood-50/50 shadow-sm'
-                                                        : 'border-wood-100 bg-white hover:border-wood-200 hover:shadow-sm'
-                                                }`}
+                                                className={`therapist-card ${selectedTherapist?.id === t.id ? 'selected' : ''}`}
                                             >
-                                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-wood-100 to-beige-100 flex items-center justify-center flex-shrink-0">
-                                                    <User className="w-6 h-6 text-wood-500" />
+                                                <div className="therapist-avatar">
+                                                    {initials}
                                                 </div>
                                                 <div className="flex-1 min-w-0">
-                                                    <h3 className="text-sm font-semibold text-wood-800">{t.name}</h3>
-                                                    <p className="text-xs text-wood-500">{t.specialization}</p>
-                                                    <p className={`text-xs mt-0.5 ${availableCount === 0 ? 'text-red-500' : 'text-wood-400'}`}>
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <h3 className="text-base font-semibold" style={{ fontFamily: "'Newsreader', Georgia, serif", color: 'var(--color-on-surface)' }}>{t.name}</h3>
+                                                        {t.yearsOfExperience != null && (
+                                                            <span className="experience-badge flex-shrink-0">
+                                                                {t.yearsOfExperience} yrs exp
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs font-semibold mb-1" style={{ color: 'var(--color-primary)' }}>{t.specialization}</p>
+                                                    {t.bio && (
+                                                        <p className="text-xs line-clamp-2 mb-2" style={{ color: 'var(--color-outline)' }}>{t.bio}</p>
+                                                    )}
+                                                    
+                                                    {t.specialties && t.specialties.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1.5 mb-2">
+                                                            {t.specialties.map(spec => (
+                                                                <span key={spec} className="specialty-tag specialty-tag-muted">
+                                                                    {spec}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    <p className={`text-xs mt-1 ${availableCount === 0 ? 'text-red-500 font-medium' : 'text-slate-500'}`}>
                                                         {availableCount === 0
                                                             ? '❌ No available slots'
                                                             : `✅ ${availableCount} slot${availableCount === 1 ? '' : 's'} available`}
                                                     </p>
                                                 </div>
-                                                {selectedTherapist?.id === t.id && <CheckCircle className="w-5 h-5 text-wood-500 ml-auto" />}
+                                                {selectedTherapist?.id === t.id && <CheckCircle className="w-5 h-5 ml-auto flex-shrink-0" style={{ color: 'var(--color-primary)' }} />}
                                             </motion.button>
                                         )
                                     })

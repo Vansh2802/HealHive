@@ -77,6 +77,39 @@ class MeView(APIView):
     def get(self, request):
         return Response({'success': True, 'user': AuthUserSerializer(request.user).data})
 
+    def put(self, request):
+        user = request.user
+        data = request.data
+        
+        # Update user fields
+        if 'name' in data:
+            user.full_name = data['name']
+        if 'age' in data:
+            user.age = data['age']
+        if 'mental_health_history' in data:
+            user.mental_health_history = data['mental_health_history']
+        user.save()
+        
+        # If user is a therapist, update therapist profile fields
+        if user.role == User.ROLE_THERAPIST and hasattr(user, 'therapist_profile'):
+            profile = user.therapist_profile
+            if 'specialization' in data:
+                profile.specialization = data['specialization']
+            if 'specialties' in data:
+                profile.specialties = data['specialties']
+            if 'yearsOfExperience' in data:
+                profile.years_of_experience = data['yearsOfExperience']
+            if 'bio' in data:
+                profile.bio = data['bio']
+            if 'licenseNumber' in data:
+                profile.license_number = data['licenseNumber']
+            if 'universityName' in data:
+                profile.university_name = data['universityName']
+            profile.save()
+            
+        logger.info(f'[MeView] Profile updated for user: {user.email}')
+        return Response({'success': True, 'user': AuthUserSerializer(user).data})
+
 
 class TherapistsListView(APIView):
     permission_classes = [AllowAny]  # Allow unauthenticated access to view available therapists
@@ -98,6 +131,8 @@ class TherapistsListView(APIView):
                 'userId': t.user_id,
                 'name': t.user.full_name,
                 'specialization': t.specialization,
+                'specialties': t.specialties or [],
+                'yearsOfExperience': t.years_of_experience,
                 'bio': t.bio,
                 'universityName': t.university_name,
                 'isApproved': t.is_approved,
@@ -148,6 +183,8 @@ class TherapistsAllView(APIView):
                 'name': t.user.full_name,
                 'email': t.user.email,
                 'specialization': t.specialization,
+                'specialties': t.specialties or [],
+                'yearsOfExperience': t.years_of_experience,
                 'bio': t.bio,
                 'licenseNumber': t.license_number,
                 'universityName': t.university_name,

@@ -5,7 +5,7 @@ import { register } from '../../services/api/auth'
 
 export default function TherapistSignup() {
     const navigate = useNavigate()
-    const [form, setForm] = useState({ name: '', email: '', license: '', university: '', specialization: '', bio: '', password: '' })
+    const [form, setForm] = useState({ name: '', email: '', license: '', university: '', specialization: '', bio: '', password: '', years_of_experience: '', specialties: [] })
     const [errors, setErrors] = useState({})
     const [loading, setLoading] = useState(false)
     const [submitted, setSubmitted] = useState(false)
@@ -25,6 +25,13 @@ export default function TherapistSignup() {
         if (!form.bio.trim()) errs.bio = 'Brief bio is required'
         if (!form.password.trim()) errs.password = 'Password is required'
         else if (form.password.length < 8) errs.password = 'Must be at least 8 characters'
+        
+        if (form.years_of_experience !== '') {
+            const exp = parseInt(form.years_of_experience)
+            if (isNaN(exp) || exp < 0 || exp > 60) {
+                errs.years_of_experience = 'Years of experience must be between 0 and 60'
+            }
+        }
         return errs
     }
 
@@ -39,6 +46,8 @@ export default function TherapistSignup() {
             license_number: form.license.trim(),
             university_name: form.university.trim(),
             bio: form.bio.trim(),
+            years_of_experience: form.years_of_experience ? parseInt(form.years_of_experience) : null,
+            specialties: form.specialties,
         })
         if (result.success) setSubmitted(true)
         else setErrors({ submit: typeof result.error === 'string' ? result.error : 'Unable to submit application.' })
@@ -48,6 +57,14 @@ export default function TherapistSignup() {
     const update = (field, value) => {
         setForm(prev => ({ ...prev, [field]: value }))
         if (errors[field]) setErrors(prev => { const n = { ...prev }; delete n[field]; return n })
+    }
+
+    const handleSpecialtyChange = (spec) => {
+        setForm(prev => {
+            const current = prev.specialties || []
+            const next = current.includes(spec) ? current.filter(s => s !== spec) : [...current, spec]
+            return { ...prev, specialties: next }
+        })
     }
 
     if (submitted) {
@@ -104,13 +121,29 @@ export default function TherapistSignup() {
                             {errors.university && <p className="flex items-center gap-1 mt-1 text-xs text-red-500"><AlertCircle className="w-3 h-3" />{errors.university}</p>}
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-wood-700 mb-1.5">Specialization</label>
+                            <label className="block text-sm font-medium text-wood-700 mb-1.5">Years of Experience</label>
+                            <input type="number" value={form.years_of_experience} onChange={e => update('years_of_experience', e.target.value)} placeholder="e.g. 5" className={inputCls('years_of_experience')} />
+                            {errors.years_of_experience && <p className="flex items-center gap-1 mt-1 text-xs text-red-500"><AlertCircle className="w-3 h-3" />{errors.years_of_experience}</p>}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-wood-700 mb-1.5">Primary Specialization</label>
                             <select value={form.specialization} onChange={e => update('specialization', e.target.value)}
                                 className={`${inputCls('specialization')} ${!form.specialization ? 'text-wood-400' : ''}`}>
                                 <option value="">Select specialization</option>
                                 {specializations.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
                             {errors.specialization && <p className="flex items-center gap-1 mt-1 text-xs text-red-500"><AlertCircle className="w-3 h-3" />{errors.specialization}</p>}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-wood-700 mb-1.5">Additional Focus Areas (Specialties)</label>
+                            <div className="grid grid-cols-2 gap-2 p-3 bg-white/50 rounded-xl border border-wood-100 max-h-36 overflow-y-auto">
+                                {specializations.map(spec => (
+                                    <label key={spec} className="flex items-center gap-2 text-xs text-wood-700 cursor-pointer">
+                                        <input type="checkbox" checked={form.specialties?.includes(spec)} onChange={() => handleSpecialtyChange(spec)} className="rounded text-wood-600 focus:ring-wood-500" />
+                                        {spec}
+                                    </label>
+                                ))}
+                            </div>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-wood-700 mb-1.5">Brief Bio</label>

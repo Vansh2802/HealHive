@@ -33,6 +33,8 @@ class TherapistProfile(models.Model):
     license_number = models.CharField(max_length=128, blank=True)
     university_name = models.CharField(max_length=255, blank=True)
     bio = models.TextField(blank=True)
+    specialties = models.JSONField(default=list, blank=True)
+    years_of_experience = models.PositiveSmallIntegerField(null=True, blank=True)
     is_verified = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
     is_rejected = models.BooleanField(default=False)

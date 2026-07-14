@@ -16,6 +16,8 @@ export async function fetchAvailableTherapists() {
             name: t.name,
             email: t.email,
             specialization: t.specialization,
+            specialties: t.specialties || [],
+            yearsOfExperience: t.yearsOfExperience,
             bio: t.bio,
             availability: (t.availability || []).map(slot => ({
                 id: slot._id,

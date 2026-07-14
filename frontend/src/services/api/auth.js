@@ -84,3 +84,25 @@ export async function fetchMe() {
         return null
     }
 }
+
+export async function updateProfile(fields) {
+    const token = getToken()
+    if (!token) return { success: false, error: 'Not authenticated' }
+    try {
+        const res = await fetch(`${API_URL}/me`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify(fields)
+        })
+        const data = await res.json()
+        if (!res.ok) {
+            return { success: false, error: extractErrorMessage(data.error, 'Failed to update profile.') }
+        }
+        return data
+    } catch {
+        return { success: false, error: 'Unable to connect to server.' }
+    }
+}

@@ -32,6 +32,7 @@ export function AuthProvider({ children }) {
         loading,
         login,
         logout,
+        setUser,
     }
 
     return (

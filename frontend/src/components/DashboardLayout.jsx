@@ -1,12 +1,36 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Leaf, LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
+/**
+ * Checks if a nav item is active by comparing pathname + query params.
+ * Handles both regular links (/user/book) and tab links (/therapist/dashboard?tab=sessions).
+ */
+function isNavActive(itemPath, location, isEnd) {
+    const [itemPathname, itemSearch] = itemPath.split('?')
+    const currentPathname = location.pathname
+    const currentSearch = location.search
+
+    // If item has a query string, match both pathname and query
+    if (itemSearch) {
+        return currentPathname === itemPathname && currentSearch === `?${itemSearch}`
+    }
+
+    // If end flag is set, exact match only (no query string on current)
+    if (isEnd) {
+        return currentPathname === itemPathname && !currentSearch
+    }
+
+    // Otherwise, prefix match
+    return currentPathname.startsWith(itemPathname)
+}
+
 export default function DashboardLayout({ children, navItems = [], title = 'Dashboard' }) {
     const { user, logout } = useAuth()
     const navigate = useNavigate()
+    const location = useLocation()
     const [collapsed, setCollapsed] = useState(false)
 
     const handleLogout = () => {
@@ -36,19 +60,19 @@ export default function DashboardLayout({ children, navItems = [], title = 'Dash
 
                 {/* Nav Items */}
                 <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
-                    {navItems.map(item => (
-                        <NavLink
-                            key={item.path}
-                            to={item.path}
-                            end={item.end}
-                            className={({ isActive }) =>
-                                `nav-item ${isActive ? 'active' : ''} ${collapsed ? 'justify-center' : ''}`
-                            }
-                        >
-                            <item.icon style={{ width: '17px', height: '17px', flexShrink: 0 }} />
-                            {!collapsed && <span>{item.label}</span>}
-                        </NavLink>
-                    ))}
+                    {navItems.map(item => {
+                        const active = isNavActive(item.path, location, item.end)
+                        return (
+                            <Link
+                                key={item.path}
+                                to={item.path}
+                                className={`nav-item ${active ? 'active' : ''} ${collapsed ? 'justify-center' : ''}`}
+                            >
+                                <item.icon style={{ width: '17px', height: '17px', flexShrink: 0 }} />
+                                {!collapsed && <span>{item.label}</span>}
+                            </Link>
+                        )
+                    })}
                 </nav>
 
                 {/* Bottom */}

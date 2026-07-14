@@ -74,8 +74,8 @@ function TiltCard({ children, className = '', style = {} }) {
 
 /* ─── Stats counter ─────────────────────────────────────── */
 const stats = [
-    { value: '500+', label: 'Licensed Therapists', icon: Users },
-    { value: '98%',  label: 'User Satisfaction',   icon: Star  },
+    { value: 'Growing', label: 'Network of licensed therapists', icon: Users },
+    { value: 'Privacy', label: 'Built as a first principle', icon: Shield },
     { value: '24/7', label: 'AI Support',           icon: Zap   },
 ]
 
@@ -462,8 +462,8 @@ export default function Landing() {
                                   desc: 'AI pre-screens clients so you get relevant, informed referrals.' },
                                 { title: 'Flexible Schedule',
                                   desc: 'Set your own availability. Work on your terms.' },
-                                { title: 'Secure Platform',
-                                  desc: 'HIPAA-aware infrastructure for safe, professional sessions.' },
+                                { title: 'Compliance',
+                                  desc: 'Privacy-first infrastructure for safe, professional sessions.' },
                             ].map((item, i) => (
                                 <motion.div
                                     key={i}
@@ -529,7 +529,13 @@ export default function Landing() {
                         >
                             {[
                                 { icon: Mail,   label: 'Email',       value: 'support@healhive.com' },
-                                { icon: Phone,  label: 'Crisis Line', value: '988 (US)'             },
+                                { icon: Phone,  label: 'Crisis Lines', value: (
+                                    <>
+                                        988 (US)<br/>
+                                        Samaritans 116 123 (UK)<br/>
+                                        <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>findahelpline.com</a>
+                                    </>
+                                ) },
                                 { icon: MapPin, label: 'Location',    value: 'Remote-first'         },
                             ].map((item, i) => (
                                 <motion.div

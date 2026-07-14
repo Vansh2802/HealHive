@@ -11,6 +11,8 @@ class AuthUserSerializer(serializers.ModelSerializer):
     therapistProfileId = serializers.SerializerMethodField()
     therapistStatus = serializers.SerializerMethodField()
     specialization = serializers.SerializerMethodField()
+    specialties = serializers.SerializerMethodField()
+    yearsOfExperience = serializers.SerializerMethodField()
     bio = serializers.SerializerMethodField()
     licenseNumber = serializers.SerializerMethodField()
     universityName = serializers.SerializerMethodField()
@@ -18,7 +20,7 @@ class AuthUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'name', 'email', 'age', 'mental_health_history', 'role', 'therapistVerified', 'therapistProfileId', 'therapistStatus', 'specialization', 'bio', 'licenseNumber', 'universityName', 'assignedTherapist']
+        fields = ['id', 'name', 'email', 'age', 'mental_health_history', 'role', 'therapistVerified', 'therapistProfileId', 'therapistStatus', 'specialization', 'specialties', 'yearsOfExperience', 'bio', 'licenseNumber', 'universityName', 'assignedTherapist']
 
     def get_therapistVerified(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
@@ -43,6 +45,14 @@ class AuthUserSerializer(serializers.ModelSerializer):
     def get_specialization(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
         return profile.specialization if profile else ''
+
+    def get_specialties(self, obj):
+        profile = getattr(obj, 'therapist_profile', None)
+        return profile.specialties if profile else []
+
+    def get_yearsOfExperience(self, obj):
+        profile = getattr(obj, 'therapist_profile', None)
+        return profile.years_of_experience if profile else None
 
     def get_bio(self, obj):
         profile = getattr(obj, 'therapist_profile', None)
@@ -70,6 +80,8 @@ class RegisterSerializer(serializers.Serializer):
     age = serializers.IntegerField(required=False, min_value=10, max_value=120)
     mental_health_history = serializers.CharField(required=False, allow_blank=True)
     specialization = serializers.CharField(required=False, allow_blank=True)
+    specialties = serializers.ListField(child=serializers.CharField(), required=False, default=list)
+    years_of_experience = serializers.IntegerField(required=False, min_value=0, max_value=60, allow_null=True, default=None)
     license_number = serializers.CharField(required=False, allow_blank=True)
     university_name = serializers.CharField(required=False, allow_blank=True)
     bio = serializers.CharField(required=False, allow_blank=True)
@@ -98,6 +110,8 @@ class RegisterSerializer(serializers.Serializer):
             TherapistProfile.objects.create(
                 user=user,
                 specialization=validated_data.get('specialization', ''),
+                specialties=validated_data.get('specialties', []),
+                years_of_experience=validated_data.get('years_of_experience'),
                 license_number=validated_data.get('license_number', ''),
                 university_name=validated_data.get('university_name', ''),
                 bio=validated_data.get('bio', ''),
